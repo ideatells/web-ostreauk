@@ -29,6 +29,8 @@
 | i18n | Strapi i18n plugin + Astro | Dutch (default) + English |
 | Deployment | Railway | Two services + one database |
 | Package Manager | pnpm | Monorepo workspaces |
+| SEO | @astrojs/sitemap, structured data, meta tags | Best practices for organic search |
+| SEA Readiness | Google Tag Manager, conversion tracking | Ready for Google Ads / paid campaigns |
 
 ## Monorepo Structure
 
@@ -45,12 +47,17 @@ web-ostreauk/
 │   │   │   │   ├── BlogCard.astro
 │   │   │   │   ├── ContactForm.astro
 │   │   │   │   ├── IntakeForm.astro
-│   │   │   │   └── LanguageSwitcher.astro
+│   │   │   │   ├── LanguageSwitcher.astro
+│   │   │   │   ├── SEOHead.astro        # Meta tags, OG, hreflang, canonical
+│   │   │   │   ├── JsonLd.astro         # Structured data (JSON-LD)
+│   │   │   │   ├── CookieConsent.astro  # GDPR cookie banner
+│   │   │   │   └── GTMScript.astro      # Google Tag Manager snippets
 │   │   │   ├── layouts/
 │   │   │   │   └── BaseLayout.astro
 │   │   │   ├── lib/
 │   │   │   │   ├── strapi.ts      # Strapi API client
-│   │   │   │   └── i18n.ts        # i18n utilities
+│   │   │   │   ├── i18n.ts        # i18n utilities
+│   │   │   │   └── seo.ts         # SEO helpers (structured data, meta)
 │   │   │   ├── pages/
 │   │   │   │   ├── index.astro            # Redirect to /nl
 │   │   │   │   ├── [lang]/
@@ -58,13 +65,15 @@ web-ostreauk/
 │   │   │   │   │   ├── [slug].astro       # Dynamic CMS pages
 │   │   │   │   │   ├── contact.astro      # Contact form page
 │   │   │   │   │   ├── nu-oprichten.astro # Intake form page
+│   │   │   │   │   ├── bedankt.astro     # Thank-you page (conversion tracking)
 │   │   │   │   │   └── blog/
 │   │   │   │   │       ├── index.astro    # Blog listing
 │   │   │   │   │       └── [slug].astro   # Blog post detail
 │   │   │   └── styles/
 │   │   │       └── global.css
 │   │   ├── public/
-│   │   │   └── favicon.svg
+│   │   │   ├── favicon.svg
+│   │   │   └── robots.txt
 │   │   ├── astro.config.mjs
 │   │   ├── tailwind.config.mjs
 │   │   ├── tsconfig.json
@@ -133,10 +142,20 @@ web-ostreauk/
 | hero_image | Media (single) | Optional hero/banner image |
 | hero_title | Text | Optional, localized |
 | hero_subtitle | Text | Optional, localized |
-| seo_title | Text | Localized, for `<title>` tag |
-| seo_description | Text (long) | Localized, for meta description |
 | show_in_nav | Boolean | Whether to show in navigation menu |
 | nav_order | Integer | Order in navigation menu |
+| **seo** | Component (shared.seo) | See SEO Component below |
+
+#### SEO Component (shared.seo) - reusable across all content types
+| Field | Type | Notes |
+|-------|------|-------|
+| seo_title | Text | Localized, for `<title>` tag (50-60 chars recommended) |
+| seo_description | Text (long) | Localized, for meta description (150-160 chars) |
+| canonical_url | Text | Optional, override canonical URL |
+| og_image | Media (single) | OpenGraph image for social sharing (1200x630px) |
+| no_index | Boolean | Default false, set true to exclude from search engines |
+| focus_keyword | Text | Primary keyword for this page (editorial guidance) |
+| structured_data_type | Enumeration | Organization, LocalBusiness, Service, BlogPosting, WebPage |
 
 #### Blog Post (Collection Type)
 | Field | Type | Notes |
@@ -145,10 +164,10 @@ web-ostreauk/
 | slug | UID (from title) | Required, unique |
 | body | Rich Text (Blocks) | Localized |
 | featured_image | Media (single) | Optional |
+| excerpt | Text (long) | Localized, for blog listing + meta fallback |
 | publish_date | Date | Required |
 | category | Relation (many-to-one) | → Blog Category |
-| seo_title | Text | Localized |
-| seo_description | Text (long) | Localized |
+| **seo** | Component (shared.seo) | Reusable SEO component |
 
 #### Blog Category (Collection Type)
 | Field | Type | Notes |
@@ -185,6 +204,11 @@ web-ostreauk/
 | footer_text | Text (long) | Localized |
 | cta_button_text | Text | Localized, e.g. "NU OPRICHTEN" |
 | cta_button_url | Text | e.g. "/nu-oprichten" |
+| gtm_container_id | Text | Google Tag Manager ID (e.g. GTM-XXXXXXX) |
+| ga4_measurement_id | Text | GA4 measurement ID (e.g. G-XXXXXXXXXX) |
+| google_ads_id | Text | Google Ads ID for conversion tracking |
+| cookie_consent_text | Text (long) | Localized, GDPR cookie banner message |
+| default_og_image | Media (single) | Fallback OpenGraph image for social sharing |
 
 ### 2.2 API Permissions
 - Public role: `find` and `findOne` on Page, Blog Post, Blog Category, Global Settings
@@ -310,7 +334,120 @@ PUBLIC_STRAPI_URL=https://api.ostrea.uk  (for client-side requests)
 
 ---
 
-## Phase 6: Content Migration
+## Phase 6: SEO Optimization (Search Engine Optimization)
+
+### 6.1 Technical SEO
+
+- **Semantic HTML**: Use proper heading hierarchy (single `<h1>` per page, logical `<h2>`-`<h6>`)
+- **Performance**: Target Lighthouse score 90+ on all Core Web Vitals (LCP, FID, CLS)
+  - Astro ships zero JS by default — leverage this for fast page loads
+  - Lazy-load images below the fold with `loading="lazy"` and `decoding="async"`
+  - Preload critical fonts and above-the-fold images
+  - Use Cloudinary auto-format (`f_auto`) and responsive sizing (`w_auto`) for optimal image delivery
+- **Sitemap**: Install `@astrojs/sitemap` to auto-generate `sitemap.xml` with all pages + blog posts for both `nl` and `en` locales
+- **robots.txt**: Serve a `robots.txt` allowing all crawlers, pointing to sitemap URL
+- **Canonical URLs**: Auto-generate `<link rel="canonical">` on every page (overridable via CMS)
+- **Hreflang tags**: Add `<link rel="alternate" hreflang="nl">` and `<link rel="alternate" hreflang="en">` on every page for multilingual SEO
+- **SSL/HTTPS**: Enforced by Railway by default
+- **Mobile-friendly**: Responsive design with proper `<meta name="viewport">` tag
+- **Clean URL structure**: `/nl/bedrijfsjuristen`, `/en/business-lawyers` — no trailing slashes, no query params
+
+### 6.2 On-Page SEO (CMS-Driven)
+
+Every page and blog post gets these editable SEO fields (via the shared SEO component in Strapi):
+
+- **Title tag** (`<title>`): CMS-editable, falls back to page title + site name
+- **Meta description**: CMS-editable, falls back to excerpt or first 160 chars
+- **OpenGraph tags**: `og:title`, `og:description`, `og:image`, `og:url`, `og:type`, `og:locale`
+- **Twitter Card tags**: `twitter:card`, `twitter:title`, `twitter:description`, `twitter:image`
+- **Focus keyword**: Editorial field in CMS to guide content writers (not rendered)
+- **No-index control**: Per-page toggle to exclude from search engines
+
+### 6.3 Structured Data (JSON-LD)
+
+Implement JSON-LD structured data on every page, with type driven by the CMS `structured_data_type` field:
+
+| Page | Schema Type | Data |
+|------|------------|------|
+| All pages | `Organization` | Company name, logo, phone, address |
+| Homepage | `WebSite` + `LocalBusiness` | Name, services, contact info, opening hours |
+| Service pages | `Service` | Service name, description, provider |
+| Blog posts | `BlogPosting` | Title, author, date, image, description |
+| Contact page | `ContactPoint` | Phone, email, address |
+
+### 6.4 Blog SEO
+
+- **Clean URLs**: `/nl/blog/post-title-slug`
+- **Blog listing pagination**: With `rel="next"` / `rel="prev"` links
+- **Category pages**: Filtered blog views for topical authority
+- **Publish date**: Rendered in HTML and structured data for freshness signals
+- **Featured image alt text**: Editable in CMS, auto-required for accessibility + SEO
+
+### 6.5 Performance & Core Web Vitals
+
+| Metric | Target | Strategy |
+|--------|--------|----------|
+| LCP (Largest Contentful Paint) | < 2.5s | Preload hero images, Cloudinary CDN, minimal JS |
+| FID (First Input Delay) | < 100ms | Astro ships zero JS by default, forms use progressive enhancement |
+| CLS (Cumulative Layout Shift) | < 0.1 | Explicit image dimensions, font-display: swap, no layout-shifting ads |
+| TTFB (Time to First Byte) | < 800ms | Railway SSR with edge caching, efficient Strapi queries |
+
+---
+
+## Phase 7: SEA Readiness (Search Engine Advertising)
+
+### 7.1 Tracking & Analytics Infrastructure
+
+- **Google Tag Manager (GTM)**: Install GTM container in `BaseLayout.astro` (both `<head>` and `<body>` snippets)
+  - CMS-editable GTM container ID in Global Settings
+  - GTM enables adding Google Ads, Analytics, and other tags without code changes
+- **Google Analytics 4 (GA4)**: Configured via GTM
+  - Track page views, scroll depth, outbound link clicks
+  - Set up custom events for form submissions
+- **Cookie consent**: Implement a GDPR-compliant cookie consent banner
+  - Block tracking scripts until consent is given
+  - Store consent preference in cookie
+  - Required for EU-based Dutch audience
+
+### 7.2 Conversion Tracking
+
+Set up conversion events for SEA campaign optimization:
+
+| Conversion | Trigger | Value |
+|-----------|---------|-------|
+| Contact form submission | Form `afterSubmit` success event | Primary |
+| Intake form submission | Form `afterSubmit` success event | Primary |
+| Phone click | Click on `tel:` link | Secondary |
+| Email click | Click on `mailto:` link | Secondary |
+| CTA button click | Click on "NU OPRICHTEN" button | Secondary |
+
+- **Thank-you pages**: After form submission, redirect to `/nl/bedankt` or `/en/thank-you` for reliable conversion tracking via URL-based goals
+- **Google Ads conversion tag**: Configured via GTM, fires on thank-you pages
+- **Enhanced conversions**: Pass hashed email to Google Ads for better attribution (GDPR-compliant)
+
+### 7.3 Landing Page Best Practices for SEA
+
+- **Fast load times**: Critical for Google Ads Quality Score (target < 3s on mobile)
+- **Clear CTA above the fold**: "NU OPRICHTEN" button visible without scrolling
+- **Phone number in header**: Click-to-call for mobile visitors from ads
+- **Service-specific pages**: Each service page can serve as a dedicated ad landing page
+- **UTM parameter support**: Ensure UTM params pass through cleanly (no stripping by redirects)
+- **Ad extensions data**: Structured data (phone, address, services) feeds Google Ads extensions
+
+### 7.4 Global Settings Additions for SEA
+
+Add to Global Settings single type in Strapi:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| gtm_container_id | Text | Google Tag Manager container ID (e.g. GTM-XXXXXXX) |
+| ga4_measurement_id | Text | GA4 measurement ID (e.g. G-XXXXXXXXXX) |
+| google_ads_id | Text | Google Ads account ID for conversion tracking |
+| cookie_consent_text | Text (long) | Localized, GDPR cookie banner message |
+
+---
+
+## Phase 8: Content Migration
 
 After deployment:
 1. Access Strapi admin panel
@@ -330,17 +467,20 @@ After deployment:
 | 1 | Initialize monorepo + gitignore + workspace config | — |
 | 2 | Scaffold Strapi backend with TypeScript | Step 1 |
 | 3 | Configure Strapi: PostgreSQL, i18n, Cloudinary | Step 2 |
-| 4 | Create all Strapi content types + components | Step 3 |
+| 4 | Create all Strapi content types + SEO component | Step 3 |
 | 5 | Set API permissions for public access | Step 4 |
 | 6 | Scaffold Astro frontend with SSR + Tailwind | Step 1 |
-| 7 | Build Strapi API client + i18n utils | Step 6 |
-| 8 | Build layout (Header, Footer, BaseLayout) | Step 7 |
-| 9 | Build Homepage | Step 8 |
-| 10 | Build dynamic page template ([slug]) | Step 8 |
-| 11 | Build blog listing + detail pages | Step 8 |
-| 12 | Build contact form + intake form | Step 8 |
+| 7 | Build Strapi API client + i18n + SEO utils | Step 6 |
+| 8 | Build layout (Header, Footer, BaseLayout) with meta tags + hreflang | Step 7 |
+| 9 | Build Homepage with structured data (JSON-LD) | Step 8 |
+| 10 | Build dynamic page template ([slug]) with SEO component rendering | Step 8 |
+| 11 | Build blog listing + detail pages with BlogPosting schema | Step 8 |
+| 12 | Build contact form + intake form with thank-you pages | Step 8 |
 | 13 | Configure email notifications in Strapi | Step 4 |
-| 14 | Add Railway deployment configs | Steps 4, 12 |
-| 15 | Test full flow locally | Steps 12, 13 |
-| 16 | Deploy to Railway | Step 14, 15 |
-| 17 | Migrate content in Strapi admin | Step 16 |
+| 14 | Add sitemap.xml + robots.txt + canonical URLs | Steps 9-12 |
+| 15 | Implement GTM, GA4, cookie consent + conversion tracking | Steps 9-12 |
+| 16 | Add Railway deployment configs | Steps 5, 15 |
+| 17 | Lighthouse audit + Core Web Vitals optimization | Step 16 |
+| 18 | Deploy to Railway | Step 16, 17 |
+| 19 | Configure Google Ads conversion tracking via GTM | Step 18 |
+| 20 | Migrate content in Strapi admin (with SEO fields filled) | Step 18 |
