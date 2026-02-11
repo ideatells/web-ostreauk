@@ -42,6 +42,10 @@
 | Package Manager | pnpm | Monorepo workspaces |
 | SEO | @astrojs/sitemap, structured data, meta tags | Best practices for organic search |
 | SEA Readiness | Google Tag Manager, conversion tracking | Ready for Google Ads / paid campaigns |
+| Unit/Code Testing | Vitest | Fast TypeScript-native test runner for both apps |
+| Integration Testing | Supertest + Vitest | API endpoint & service integration tests |
+| Functional/E2E Testing | Playwright | Cross-browser end-to-end testing of user flows |
+| CI Testing | GitHub Actions | Automated test pipeline on push/PR |
 
 ## Monorepo Structure
 
@@ -82,11 +86,28 @@ web-ostreauk/
 │   │   │   │   │       └── [slug].astro   # Blog post detail
 │   │   │   └── styles/
 │   │   │       └── global.css
+│   │   ├── tests/
+│   │   │   ├── unit/                      # Unit tests (Vitest)
+│   │   │   │   ├── lib/
+│   │   │   │   │   ├── strapi.test.ts     # Strapi API client tests
+│   │   │   │   │   ├── i18n.test.ts       # i18n utility tests
+│   │   │   │   │   └── seo.test.ts        # SEO helper tests
+│   │   │   │   └── components/
+│   │   │   │       └── JsonLd.test.ts     # JSON-LD output tests
+│   │   │   └── e2e/                       # E2E tests (Playwright)
+│   │   │       ├── homepage.spec.ts       # Homepage rendering + navigation
+│   │   │       ├── contact-form.spec.ts   # Contact form submission flow
+│   │   │       ├── intake-form.spec.ts    # Intake form submission flow
+│   │   │       ├── blog.spec.ts           # Blog listing + detail pages
+│   │   │       ├── i18n.spec.ts           # Language switching + URL patterns
+│   │   │       └── seo.spec.ts            # Meta tags, OG, hreflang, sitemap
 │   │   ├── public/
 │   │   │   ├── favicon.svg
 │   │   │   └── robots.txt
 │   │   ├── astro.config.mjs
 │   │   ├── tailwind.config.mjs
+│   │   ├── vitest.config.ts               # Vitest config for unit tests
+│   │   ├── playwright.config.ts           # Playwright config for E2E tests
 │   │   ├── tsconfig.json
 │   │   └── package.json
 │   │
@@ -112,19 +133,46 @@ web-ostreauk/
 │       │   │   ├── smtp2go.ts         # SMTP2GO API email service
 │       │   │   └── webhook.ts         # Webhook dispatcher service
 │       │   └── extensions/
+│       ├── tests/
+│       │   ├── unit/                  # Unit tests (Vitest)
+│       │   │   ├── services/
+│       │   │   │   ├── smtp2go.test.ts        # SMTP2GO service tests
+│       │   │   │   └── webhook.test.ts        # Webhook dispatcher tests
+│       │   │   └── lifecycles/
+│       │   │       ├── contact-submission.test.ts  # Contact lifecycle tests
+│       │   │       └── intake-submission.test.ts   # Intake lifecycle tests
+│       │   ├── integration/           # Integration tests (Supertest + Vitest)
+│       │   │   ├── api/
+│       │   │   │   ├── contact-submission.test.ts  # POST /api/contact-submissions
+│       │   │   │   ├── intake-submission.test.ts   # POST /api/intake-submissions
+│       │   │   │   ├── page.test.ts               # GET /api/pages
+│       │   │   │   ├── blog-post.test.ts          # GET /api/blog-posts
+│       │   │   │   └── global-settings.test.ts    # GET /api/global-settings
+│       │   │   └── helpers/
+│       │   │       ├── strapi-instance.ts     # Strapi test instance bootstrap
+│       │   │       └── test-data.ts           # Seed data / fixtures
+│       │   └── functional/            # Functional tests (Vitest)
+│       │       ├── form-to-db.test.ts         # Submit form → verify DB record
+│       │       ├── form-to-email.test.ts      # Submit form → verify SMTP2GO called
+│       │       └── form-to-webhook.test.ts    # Submit form → verify webhook dispatched
 │       ├── config/
 │       │   ├── database.ts
 │       │   ├── server.ts
 │       │   ├── admin.ts
 │       │   ├── middlewares.ts
 │       │   └── plugins.ts            # i18n + cloudinary config
+│       ├── vitest.config.ts           # Vitest config for backend tests
 │       ├── tsconfig.json
 │       └── package.json
 │
+├── .github/
+│   └── workflows/
+│       └── ci.yml                   # CI pipeline: lint, unit, integration, e2e
 ├── pnpm-workspace.yaml
 ├── package.json                  # Root workspace config
 ├── .gitignore
 ├── .env.example
+├── .env.test                     # Test environment variables (committed, no secrets)
 └── MIGRATION_PLAN.md
 ```
 
@@ -555,7 +603,504 @@ export default {
 
 ---
 
-## Phase 5: Railway Deployment
+## Phase 5: Testing — Code, Integration & Functional
+
+### 5.1 Testing Stack
+
+| Tool | Purpose | Scope |
+|------|---------|-------|
+| Vitest | Unit + integration test runner | Both frontend and backend |
+| Supertest | HTTP assertion library | Backend API endpoint tests |
+| Playwright | Browser automation | Cross-browser E2E tests |
+| MSW (Mock Service Worker) | API mocking | Frontend tests (mock Strapi responses) |
+| GitHub Actions | CI pipeline | Automated testing on push/PR |
+
+### 5.2 Code / Unit Tests
+
+Isolated tests for individual functions, utilities, and services. No external dependencies — all I/O is mocked.
+
+#### Backend Unit Tests
+
+**SMTP2GO service** (`tests/unit/services/smtp2go.test.ts`):
+```typescript
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+describe('SMTP2GO Service', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+  });
+
+  it('should call SMTP2GO API with correct payload', async () => {
+    (fetch as any).mockResolvedValueOnce({ ok: true });
+
+    await sendEmail({
+      to: ['admin@ostrea.uk'],
+      sender: 'noreply@ostrea.uk',
+      subject: 'Test',
+      html_body: '<p>Test</p>',
+      text_body: 'Test',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://api.smtp2go.com/v3/email/send',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"api_key"'),
+      })
+    );
+  });
+
+  it('should throw on SMTP2GO API error', async () => {
+    (fetch as any).mockResolvedValueOnce({
+      ok: false,
+      json: () => Promise.resolve({ data: { error: 'Invalid API key' } }),
+    });
+
+    await expect(sendEmail({ /* ... */ })).rejects.toThrow('SMTP2GO error');
+  });
+
+  it('should include all required email fields', async () => {
+    (fetch as any).mockResolvedValueOnce({ ok: true });
+    await sendEmail({ to: ['a@b.com'], sender: 'x@y.com', subject: 'S', html_body: 'H', text_body: 'T' });
+
+    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    expect(body).toHaveProperty('to');
+    expect(body).toHaveProperty('sender');
+    expect(body).toHaveProperty('subject');
+    expect(body).toHaveProperty('html_body');
+    expect(body).toHaveProperty('text_body');
+  });
+});
+```
+
+**Webhook dispatcher** (`tests/unit/services/webhook.test.ts`):
+- Sends POST to configured `WEBHOOK_URL`
+- Includes `X-Webhook-Secret` and `X-Webhook-Event` headers
+- Skips silently when `WEBHOOK_URL` is not set
+- Logs error on failed dispatch (does not throw — non-blocking)
+
+**Lifecycle hooks** (`tests/unit/lifecycles/*.test.ts`):
+- Verifies `afterCreate` calls both `sendEmail` and `dispatchWebhook`
+- Verifies correct data mapping from Strapi result to email/webhook payload
+- Verifies contact submission includes: name, email, phone, message
+- Verifies intake submission includes: name, email, phone, company_name, service_type, message
+
+#### Frontend Unit Tests
+
+**Strapi API client** (`tests/unit/lib/strapi.test.ts`):
+- Constructs correct URL with locale parameter
+- Handles population parameters
+- Returns typed response data
+- Throws on API errors with meaningful message
+
+**i18n utilities** (`tests/unit/lib/i18n.test.ts`):
+- Returns correct translations for `nl` and `en` locales
+- Falls back to default locale for missing keys
+- Validates locale parameter (rejects invalid locales)
+
+**SEO helpers** (`tests/unit/lib/seo.test.ts`):
+- Generates correct JSON-LD for each schema type (Organization, LocalBusiness, Service, BlogPosting, WebPage)
+- Falls back to defaults when CMS SEO fields are empty
+- Generates correct canonical URL
+- Generates correct hreflang alternate links
+
+### 5.3 Integration Tests
+
+Tests that verify multiple components working together with real (test) database and mocked external services.
+
+#### Backend API Integration Tests
+
+Run against a real Strapi instance with a test PostgreSQL database. External services (SMTP2GO, webhooks) are mocked.
+
+**Setup** (`tests/integration/helpers/strapi-instance.ts`):
+```typescript
+import { beforeAll, afterAll } from 'vitest';
+
+let strapiInstance;
+
+beforeAll(async () => {
+  // Boot Strapi with test database (SQLite or test PostgreSQL)
+  strapiInstance = await strapi().load();
+  await strapiInstance.server.mount();
+});
+
+afterAll(async () => {
+  await strapiInstance.destroy();
+});
+```
+
+**Contact Submission API** (`tests/integration/api/contact-submission.test.ts`):
+```typescript
+import { describe, it, expect } from 'vitest';
+import request from 'supertest';
+
+describe('POST /api/contact-submissions', () => {
+  it('should create submission and return 200', async () => {
+    const res = await request(strapi.server.httpServer)
+      .post('/api/contact-submissions')
+      .send({
+        data: {
+          name: 'Test User',
+          email: 'test@example.com',
+          phone: '+31612345678',
+          message: 'Integration test message',
+        },
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.attributes.name).toBe('Test User');
+    expect(res.body.data.attributes.email).toBe('test@example.com');
+  });
+
+  it('should reject submission without required fields', async () => {
+    const res = await request(strapi.server.httpServer)
+      .post('/api/contact-submissions')
+      .send({ data: { name: 'No Email' } });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('should reject invalid email format', async () => {
+    const res = await request(strapi.server.httpServer)
+      .post('/api/contact-submissions')
+      .send({ data: { name: 'Test', email: 'not-an-email', message: 'Hi' } });
+
+    expect(res.status).toBe(400);
+  });
+});
+```
+
+**Intake Submission API** (`tests/integration/api/intake-submission.test.ts`):
+- Creates submission with all fields (name, email, phone, company_name, service_type, message)
+- Validates `service_type` enum values (only accepts: bedrijfsjuristen, trust_formation, belastingadvies)
+- Rejects invalid enum values
+- Accepts submission with only required fields (name, email)
+
+**Read-only API endpoints** (`tests/integration/api/page.test.ts`, `blog-post.test.ts`, `global-settings.test.ts`):
+- `GET /api/pages` returns pages with locale parameter
+- `GET /api/pages/:id` returns single page with populated SEO component
+- `GET /api/blog-posts` returns posts with pagination
+- `GET /api/global-settings` returns site configuration
+- Verifies public role cannot create/update/delete read-only content types
+
+### 5.4 Functional Tests
+
+End-to-end tests that verify complete user workflows from form submission through to database persistence, email dispatch, and webhook delivery.
+
+**Form → Database** (`tests/functional/form-to-db.test.ts`):
+```typescript
+describe('Form submission → Database storage', () => {
+  it('contact form: submitted data matches database record', async () => {
+    const payload = {
+      name: 'Functional Test',
+      email: 'func@test.nl',
+      phone: '+31600000000',
+      message: 'Testing full pipeline',
+    };
+
+    const res = await request(strapi.server.httpServer)
+      .post('/api/contact-submissions')
+      .send({ data: payload });
+
+    // Verify the record exists in the database
+    const dbRecord = await strapi.db
+      .query('api::contact-submission.contact-submission')
+      .findOne({ where: { id: res.body.data.id } });
+
+    expect(dbRecord.name).toBe(payload.name);
+    expect(dbRecord.email).toBe(payload.email);
+    expect(dbRecord.phone).toBe(payload.phone);
+    expect(dbRecord.message).toBe(payload.message);
+    expect(dbRecord.createdAt).toBeDefined();
+  });
+});
+```
+
+**Form → Email** (`tests/functional/form-to-email.test.ts`):
+- Mocks `fetch` (SMTP2GO endpoint) and verifies it was called after submission
+- Verifies email subject contains submitter's name
+- Verifies email body contains all form fields
+- Verifies sender and recipient addresses match env vars
+
+**Form → Webhook** (`tests/functional/form-to-webhook.test.ts`):
+- Mocks `fetch` (webhook URL) and verifies it was called after submission
+- Verifies webhook payload contains correct event type
+- Verifies webhook payload data matches submitted form fields
+- Verifies `X-Webhook-Secret` header is present
+- Verifies webhook failure does not break form submission (non-blocking)
+
+### 5.5 E2E Tests (Playwright)
+
+Browser-based tests that verify the full user experience across Chrome, Firefox, and Safari.
+
+#### Test Configuration (`apps/frontend/playwright.config.ts`):
+```typescript
+import { defineConfig, devices } from '@playwright/test';
+
+export default defineConfig({
+  testDir: './tests/e2e',
+  fullyParallel: true,
+  retries: process.env.CI ? 2 : 0,
+  workers: process.env.CI ? 1 : undefined,
+  reporter: 'html',
+  use: {
+    baseURL: 'http://localhost:4321',
+    trace: 'on-first-retry',
+  },
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] } },
+    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-chrome', use: { ...devices['Pixel 5'] } },
+    { name: 'mobile-safari', use: { ...devices['iPhone 13'] } },
+  ],
+  webServer: {
+    command: 'pnpm --filter frontend dev',
+    url: 'http://localhost:4321',
+    reuseExistingServer: !process.env.CI,
+  },
+});
+```
+
+#### E2E Test Suites
+
+**Homepage** (`tests/e2e/homepage.spec.ts`):
+- Page loads and renders hero section
+- Navigation links are present and clickable
+- CTA "NU OPRICHTEN" button links to intake form
+- Phone number is visible in header
+- Footer renders contact info from Global Settings
+
+**Contact form** (`tests/e2e/contact-form.spec.ts`):
+```typescript
+import { test, expect } from '@playwright/test';
+
+test.describe('Contact Form', () => {
+  test('should submit form and redirect to thank-you page', async ({ page }) => {
+    await page.goto('/nl/contact');
+
+    await page.fill('input[name="name"]', 'Playwright Test');
+    await page.fill('input[name="email"]', 'test@playwright.dev');
+    await page.fill('input[name="phone"]', '+31612345678');
+    await page.fill('textarea[name="message"]', 'E2E test message');
+    await page.click('button[type="submit"]');
+
+    await expect(page).toHaveURL(/\/nl\/bedankt/);
+    await expect(page.locator('h1')).toContainText('Bedankt');
+  });
+
+  test('should show validation errors for empty required fields', async ({ page }) => {
+    await page.goto('/nl/contact');
+    await page.click('button[type="submit"]');
+
+    await expect(page.locator('[data-error="name"]')).toBeVisible();
+    await expect(page.locator('[data-error="email"]')).toBeVisible();
+    await expect(page.locator('[data-error="message"]')).toBeVisible();
+  });
+
+  test('should reject invalid email format', async ({ page }) => {
+    await page.goto('/nl/contact');
+    await page.fill('input[name="email"]', 'not-an-email');
+    await page.click('button[type="submit"]');
+
+    await expect(page.locator('[data-error="email"]')).toBeVisible();
+  });
+});
+```
+
+**Intake form** (`tests/e2e/intake-form.spec.ts`):
+- Fills all fields including service type dropdown
+- Submits form and verifies redirect to thank-you page
+- Validates required fields (name, email)
+- Service type dropdown contains correct options (bedrijfsjuristen, trust_formation, belastingadvies)
+
+**i18n / Language switching** (`tests/e2e/i18n.spec.ts`):
+- `/` redirects to `/nl`
+- Language switcher toggles between `/nl/...` and `/en/...`
+- UI strings change when locale switches
+- Form labels render in correct language
+
+**SEO validation** (`tests/e2e/seo.spec.ts`):
+- Every page has `<title>` tag
+- Every page has `<meta name="description">`
+- Every page has `<link rel="canonical">`
+- Every page has hreflang alternate links (nl + en)
+- Homepage has JSON-LD structured data (Organization + LocalBusiness)
+- Blog post pages have BlogPosting JSON-LD
+- `robots.txt` is accessible and contains sitemap URL
+- `sitemap.xml` is accessible and contains page URLs
+
+**Blog** (`tests/e2e/blog.spec.ts`):
+- Blog listing renders cards with title, date, excerpt
+- Blog detail page renders full content
+- Category filter works
+- Pagination works
+
+### 5.6 CI Pipeline (GitHub Actions)
+
+```yaml
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+    branches: [main, claude/*]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter frontend tsc --noEmit
+      - run: pnpm --filter backend tsc --noEmit
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter frontend test:unit
+      - run: pnpm --filter backend test:unit
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: strapi_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/strapi_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter backend test:integration
+
+  functional-tests:
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: strapi_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/strapi_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter backend test:functional
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: strapi_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://test:test@localhost:5432/strapi_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: npx playwright install --with-deps
+      - run: pnpm --filter backend build && pnpm --filter backend start &
+      - run: pnpm --filter frontend test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/frontend/playwright-report/
+```
+
+### 5.7 npm Scripts (per package)
+
+**Backend (`apps/backend/package.json`):**
+```json
+{
+  "scripts": {
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:functional": "vitest run tests/functional",
+    "test:watch": "vitest watch"
+  }
+}
+```
+
+**Frontend (`apps/frontend/package.json`):**
+```json
+{
+  "scripts": {
+    "test": "vitest run && playwright test",
+    "test:unit": "vitest run tests/unit",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:watch": "vitest watch"
+  }
+}
+```
+
+**Root (`package.json`):**
+```json
+{
+  "scripts": {
+    "test": "pnpm -r test",
+    "test:unit": "pnpm --filter frontend test:unit && pnpm --filter backend test:unit",
+    "test:ci": "pnpm -r test"
+  }
+}
+```
+
+---
+
+## Phase 6: Railway Deployment
 
 ### 5.1 Railway Services
 
@@ -609,7 +1154,7 @@ PUBLIC_STRAPI_URL=https://api.ostrea.uk  (for client-side requests)
 
 ---
 
-## Phase 6: SEO Optimization (Search Engine Optimization)
+## Phase 7: SEO Optimization (Search Engine Optimization)
 
 ### 6.1 Technical SEO
 
@@ -669,7 +1214,7 @@ Implement JSON-LD structured data on every page, with type driven by the CMS `st
 
 ---
 
-## Phase 7: SEA Readiness (Search Engine Advertising)
+## Phase 8: SEA Readiness (Search Engine Advertising)
 
 ### 7.1 Tracking & Analytics Infrastructure
 
@@ -722,7 +1267,7 @@ Add to Global Settings single type in Strapi:
 
 ---
 
-## Phase 8: Content Migration
+## Phase 9: Content Migration
 
 After deployment:
 1. Access Strapi admin panel
@@ -754,12 +1299,18 @@ After deployment:
 | 13 | Build SMTP2GO email service (`apps/backend/src/services/smtp2go.ts`) | Step 4 |
 | 14 | Build webhook dispatcher service (`apps/backend/src/services/webhook.ts`) | Step 4 |
 | 15 | Add lifecycle hooks on Contact Submission + Intake Submission (email + webhook) | Steps 13, 14 |
-| 16 | Test form pipeline: submit → DB save → SMTP2GO email → webhook POST | Step 15 |
-| 17 | Add sitemap.xml + robots.txt + canonical URLs | Steps 9-12 |
-| 18 | Implement GTM, GA4, cookie consent + conversion tracking | Steps 9-12 |
-| 19 | Add Railway deployment configs (incl. SMTP2GO + webhook env vars) | Steps 5, 18 |
-| 20 | Lighthouse audit + Core Web Vitals optimization | Step 19 |
-| 21 | Deploy to Railway | Steps 19, 20 |
-| 22 | Configure Google Ads conversion tracking via GTM | Step 21 |
-| 23 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 21 |
-| 24 | Migrate content in Strapi admin (with SEO fields filled) | Step 21 |
+| 16 | **Write backend unit tests** (SMTP2GO service, webhook dispatcher, lifecycle hooks) | Steps 13-15 |
+| 17 | **Write backend integration tests** (API endpoints with test DB + Supertest) | Steps 5, 16 |
+| 18 | **Write backend functional tests** (form → DB, form → email, form → webhook) | Step 17 |
+| 19 | **Write frontend unit tests** (Strapi client, i18n, SEO helpers, JSON-LD) | Steps 7, 12 |
+| 20 | **Write E2E tests** (Playwright: forms, i18n, SEO, blog, navigation) | Steps 12, 17 |
+| 21 | **Set up CI pipeline** (GitHub Actions: lint, unit, integration, functional, E2E) | Step 20 |
+| 22 | Add sitemap.xml + robots.txt + canonical URLs | Steps 9-12 |
+| 23 | Implement GTM, GA4, cookie consent + conversion tracking | Steps 9-12 |
+| 24 | Add Railway deployment configs (incl. SMTP2GO + webhook env vars) | Steps 5, 23 |
+| 25 | Lighthouse audit + Core Web Vitals optimization | Step 24 |
+| 26 | **Run full test suite — all tests must pass before deploy** | Steps 16-21 |
+| 27 | Deploy to Railway | Steps 24, 25, 26 |
+| 28 | Configure Google Ads conversion tracking via GTM | Step 27 |
+| 29 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 27 |
+| 30 | Migrate content in Strapi admin (with SEO fields filled) | Step 27 |
