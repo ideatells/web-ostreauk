@@ -38,7 +38,7 @@
 | Email | SMTP2GO API (smtp2go.com) | Transactional email for form notifications |
 | Webhooks | Custom Strapi lifecycle hooks | Push form data to external automation tools |
 | i18n | Strapi i18n plugin + Astro | Dutch (default) + English |
-| Deployment | Railway | Two services + one database |
+| Deployment | Railway | Two services + one database (initial); five services + database + Redis (after Phase 11 microservices migration) |
 | Package Manager | pnpm | Monorepo workspaces |
 | SEO | @astrojs/sitemap, structured data, meta tags | Best practices for organic search |
 | SEA Readiness | Google Tag Manager, conversion tracking | Ready for Google Ads / paid campaigns |
@@ -46,6 +46,8 @@
 | Integration Testing | Supertest + Vitest | API endpoint & service integration tests |
 | Functional/E2E Testing | Playwright | Cross-browser end-to-end testing of user flows |
 | CI Testing | GitHub Actions | Automated test pipeline on push/PR |
+| Message Queue | BullMQ + Redis | Async event processing for microservices (Phase 11) |
+| Microservices | Node.js workers | Form processor, email service, webhook service (Phase 11) |
 
 ## Monorepo Structure
 
@@ -2877,6 +2879,331 @@ After deployment:
 
 ---
 
+## Phase 11: Microservices Migration
+
+After the initial monolithic deployment is stable and production-proven, the architecture evolves toward a microservices model. This phase decomposes the Strapi monolith into focused, independently deployable services to improve scalability, fault isolation, and team autonomy.
+
+### 11.1 Motivation
+
+| Concern | Monolith Limitation | Microservices Benefit |
+|---------|---------------------|----------------------|
+| Fault isolation | SMTP2GO outage blocks the entire Strapi process | Email service fails independently; form submissions still saved |
+| Scalability | Scaling Strapi scales everything (CMS admin + API + form processing) | Scale only the services under load (e.g., form processor during ad campaigns) |
+| Deployment independence | Any change requires full Strapi redeploy | Update email templates without touching CMS or frontend |
+| Technology flexibility | Locked into Strapi's plugin ecosystem for all integrations | Each service can use the best tool for its job |
+| Queue resilience | Synchronous lifecycle hooks — if email is slow, API response is slow | Async message queue decouples form submission from side effects |
+
+### 11.2 Target Microservices Architecture
+
+```
+                         ┌─────────────────┐
+                         │   Cloudinary     │
+                         │ (cloudinary.com) │
+                         │  Image CDN       │
+                         └────────▲─────────┘
+                                  │
+┌──────────────┐        ┌────────┴────────┐        ┌────────────────┐
+│  Astro.js    │───────▶│  Strapi CMS     │───────▶│  PostgreSQL    │
+│  (SSR)       │        │  (Content API)  │        │  (Railway DB)  │
+│  Railway     │        │  Railway        │        │                │
+└──────────────┘        └────────┬────────┘        └────────────────┘
+                                 │
+                          publish event
+                                 │
+                         ┌───────▼────────┐
+                         │  Message Queue  │
+                         │  (Redis/BullMQ  │
+                         │   or NATS)      │
+                         └──┬──────────┬──┘
+                            │          │
+              ┌─────────────▼──┐  ┌────▼──────────────┐
+              │  Email Service │  │  Webhook Service   │
+              │  (Node.js)     │  │  (Node.js)         │
+              │  Railway       │  │  Railway           │
+              └───────┬────────┘  └────┬──────────────┘
+                      │                │
+              ┌───────▼────────┐  ┌────▼──────────────┐
+              │   SMTP2GO      │  │ Automation Tools   │
+              │ (smtp2go.com)  │  │ (Zapier/Make/n8n)  │
+              │  Email API     │  │  via webhook URL   │
+              └────────────────┘  └───────────────────┘
+```
+
+### 11.3 Service Decomposition
+
+The monolith is split into four independently deployable services:
+
+| Service | Responsibility | Port | Railway Service |
+|---------|---------------|------|-----------------|
+| **Strapi CMS** | Content management, REST API, form submission storage | 1337 | `backend` |
+| **Form Processor** | Receives form events from queue, orchestrates side effects | — | `form-processor` |
+| **Email Service** | Sends transactional emails via SMTP2GO API | — | `email-service` |
+| **Webhook Service** | Dispatches webhook POSTs to automation tools | — | `webhook-service` |
+
+### 11.4 Message Queue
+
+A message queue decouples form submission (synchronous API response) from side effects (email, webhooks). This provides:
+
+- **Retry with backoff**: Failed emails are retried automatically (3 attempts, exponential backoff)
+- **Dead letter queue (DLQ)**: Permanently failed messages are captured for manual inspection
+- **Non-blocking API response**: Strapi returns `201` immediately; side effects process asynchronously
+
+**Technology choice**: **BullMQ** with **Redis** (Railway managed Redis instance).
+
+- BullMQ is Node.js-native, TypeScript-first, and well-suited for the existing stack
+- Redis is available as a managed Railway service
+- Alternative for higher scale: **NATS** or **RabbitMQ** (evaluate if message volume exceeds Redis capacity)
+
+**Queue topology:**
+
+| Queue Name | Producer | Consumer | Payload |
+|------------|----------|----------|---------|
+| `submission.email` | Form Processor | Email Service | `{ submissionType, submissionId, emailContent }` |
+| `submission.webhook` | Form Processor | Webhook Service | `{ event, timestamp, data }` |
+| `submission.created` | Strapi lifecycle hook | Form Processor | `{ submissionType, submissionId, data }` |
+
+### 11.5 Updated Data Flow
+
+1. User submits form in Astro frontend
+2. `POST /api/contact-submissions` or `POST /api/intake-submissions` to Strapi REST API
+3. Strapi saves record to PostgreSQL (automatic)
+4. Strapi `afterCreate` lifecycle hook publishes a message to the `submission.created` queue (replaces direct email + webhook calls)
+5. Strapi returns `201` to the client immediately
+6. **Form Processor** consumes `submission.created`:
+   - Builds email content from submission data (same `buildContactEmail` / `buildIntakeEmail` templates)
+   - Publishes message to `submission.email` queue
+   - Publishes message to `submission.webhook` queue
+7. **Email Service** consumes `submission.email`:
+   - Sends email via SMTP2GO API
+   - Retries on transient failures (3 attempts, exponential backoff: 2s, 4s, 8s)
+   - Moves permanently failed messages to DLQ
+8. **Webhook Service** consumes `submission.webhook`:
+   - Dispatches webhook POST to configured `WEBHOOK_URL`
+   - Retries on transient failures (3 attempts, exponential backoff)
+   - Moves permanently failed messages to DLQ
+9. Frontend redirects user to thank-you page (unchanged)
+
+### 11.6 Monorepo Structure Changes
+
+```
+web-ostreauk/
+├── apps/
+│   ├── frontend/                 # Astro.js SSR (unchanged)
+│   ├── backend/                  # Strapi CMS (simplified — no longer handles email/webhook directly)
+│   ├── form-processor/           # NEW: Form event orchestrator
+│   │   ├── src/
+│   │   │   ├── index.ts          # BullMQ worker entry point
+│   │   │   ├── handlers/
+│   │   │   │   ├── contact-submission.ts   # Builds email + webhook jobs for contact forms
+│   │   │   │   └── intake-submission.ts    # Builds email + webhook jobs for intake forms
+│   │   │   └── queues.ts         # Queue definitions and connection config
+│   │   ├── tests/
+│   │   │   └── unit/
+│   │   │       ├── contact-submission.test.ts
+│   │   │       └── intake-submission.test.ts
+│   │   ├── tsconfig.json
+│   │   └── package.json
+│   ├── email-service/            # NEW: SMTP2GO email sender
+│   │   ├── src/
+│   │   │   ├── index.ts          # BullMQ worker entry point
+│   │   │   ├── smtp2go.ts        # SMTP2GO API client (extracted from backend)
+│   │   │   └── email-templates.ts # Email content builders (extracted from backend)
+│   │   ├── tests/
+│   │   │   └── unit/
+│   │   │       ├── smtp2go.test.ts
+│   │   │       └── email-templates.test.ts
+│   │   ├── tsconfig.json
+│   │   └── package.json
+│   └── webhook-service/          # NEW: Webhook dispatcher
+│       ├── src/
+│       │   ├── index.ts          # BullMQ worker entry point
+│       │   └── webhook.ts        # Webhook dispatcher (extracted from backend)
+│       ├── tests/
+│       │   └── unit/
+│       │       └── webhook.test.ts
+│       ├── tsconfig.json
+│       └── package.json
+├── packages/
+│   └── shared-types/             # NEW: Shared TypeScript interfaces across services
+│       ├── src/
+│       │   ├── submissions.ts    # ContactSubmission, IntakeSubmission, EmailContent
+│       │   └── events.ts         # Queue event payload types
+│       ├── tsconfig.json
+│       └── package.json
+├── .github/
+│   └── workflows/
+│       └── ci.yml                # Updated: test all services
+├── pnpm-workspace.yaml           # Updated: includes apps/* and packages/*
+└── ...
+```
+
+### 11.7 Strapi Lifecycle Hook Changes
+
+The `afterCreate` hooks are simplified to publish a message instead of calling services directly:
+
+```typescript
+/**
+ * Contact submission afterCreate lifecycle hook (microservices version).
+ *
+ * Publishes a message to the submission.created queue instead of
+ * directly calling email and webhook services. The form processor
+ * service handles orchestration asynchronously.
+ */
+import { submissionCreatedQueue } from '../../../queues';
+
+export default {
+  async afterCreate(event: { result: ContactSubmission }) {
+    await submissionCreatedQueue.add('contact_submission.created', {
+      submissionType: 'contact',
+      submissionId: event.result.id,
+      data: {
+        id: event.result.id,
+        name: event.result.name,
+        email: event.result.email,
+        phone: event.result.phone,
+        message: event.result.message,
+        createdAt: event.result.createdAt,
+      },
+    });
+  },
+};
+```
+
+### 11.8 Railway Deployment (Microservices)
+
+| Service | Type | Build Command | Start Command |
+|---------|------|---------------|---------------|
+| backend | Node.js | `pnpm --filter backend build` | `pnpm --filter backend start` |
+| frontend | Node.js | `pnpm --filter frontend build` | `node apps/frontend/dist/server/entry.mjs` |
+| form-processor | Node.js | `pnpm --filter form-processor build` | `node apps/form-processor/dist/index.js` |
+| email-service | Node.js | `pnpm --filter email-service build` | `node apps/email-service/dist/index.js` |
+| webhook-service | Node.js | `pnpm --filter webhook-service build` | `node apps/webhook-service/dist/index.js` |
+| database | PostgreSQL | — (managed) | — |
+| redis | Redis | — (managed) | — |
+
+**Additional environment variables:**
+
+```
+# Redis (shared across queue producers and consumers)
+REDIS_URL=<railway redis connection string>
+
+# Form Processor
+REDIS_URL=<railway redis connection string>
+
+# Email Service
+REDIS_URL=<railway redis connection string>
+SMTP2GO_API_KEY=<smtp2go api key>
+SMTP2GO_SENDER_EMAIL=noreply@ostrea.uk
+ADMIN_NOTIFICATION_EMAIL=info@ostrea.uk
+
+# Webhook Service
+REDIS_URL=<railway redis connection string>
+WEBHOOK_URL=<webhook endpoint URL>
+WEBHOOK_SECRET=<shared secret>
+```
+
+### 11.9 Shared Types Package
+
+Extract shared TypeScript interfaces into a `packages/shared-types` workspace package so all services share the same type definitions:
+
+```typescript
+// packages/shared-types/src/events.ts
+
+/** Message published to the submission.created queue */
+export interface SubmissionCreatedEvent {
+  submissionType: 'contact' | 'intake';
+  submissionId: number;
+  data: Record<string, unknown>;
+}
+
+/** Message published to the submission.email queue */
+export interface EmailJobPayload {
+  submissionType: 'contact' | 'intake';
+  submissionId: number;
+  emailContent: {
+    to: string[];
+    sender: string;
+    subject: string;
+    html_body: string;
+    text_body: string;
+  };
+}
+
+/** Message published to the submission.webhook queue */
+export interface WebhookJobPayload {
+  event: 'contact_submission.created' | 'intake_submission.created';
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+```
+
+### 11.10 Migration Strategy (Monolith → Microservices)
+
+The migration is incremental — the monolith continues to work throughout:
+
+| Step | Action | Risk | Rollback |
+|------|--------|------|----------|
+| 1 | Add Redis to Railway, install BullMQ in backend | None — no behavior change | Remove Redis service |
+| 2 | Create `form-processor` service with handlers | None — not yet connected | Delete service |
+| 3 | Create `email-service` with extracted SMTP2GO logic | None — not yet connected | Delete service |
+| 4 | Create `webhook-service` with extracted webhook logic | None — not yet connected | Delete service |
+| 5 | Create `packages/shared-types` and update imports | None — type-only change | Revert imports |
+| 6 | Update Strapi lifecycle hooks to publish to queue **and** call services directly (dual-write) | Low — both paths active | Revert lifecycle hooks |
+| 7 | Verify microservices process all messages correctly via monitoring | None — dual-write ensures no loss | — |
+| 8 | Remove direct service calls from lifecycle hooks (queue-only) | Medium — queue is now sole path | Re-add direct calls |
+| 9 | Remove `smtp2go.ts` and `webhook.ts` from `apps/backend/src/services/` | Low — unused code removal | Restore files from git |
+
+**Dual-write period (Steps 6-8)**: During migration, both the old synchronous path and the new queue-based path are active. This ensures no messages are lost while the microservices are being validated. Monitor both paths and only remove the synchronous path after confirming the queue path is reliable.
+
+### 11.11 Monitoring & Observability
+
+| Concern | Tool | Implementation |
+|---------|------|----------------|
+| Queue depth | BullMQ dashboard (Bull Board) | Add `@bull-board/express` to form-processor for a web UI |
+| Failed jobs | BullMQ dead letter queue | Alert on DLQ depth > 0 via Railway health check or webhook |
+| Service health | Railway health checks | Each service exposes `GET /health` returning `200` |
+| Structured logging | `pino` logger | All services log with JSON structure for Railway log aggregation |
+| Email delivery | SMTP2GO dashboard | Monitor delivery rates, bounces, and failures at smtp2go.com |
+
+### 11.12 Testing Microservices
+
+Each service has its own test suite following the same patterns as the monolith:
+
+| Service | Unit Tests | Integration Tests |
+|---------|------------|-------------------|
+| form-processor | Handler logic, queue message construction | Publish to queue → verify consumer picks up message |
+| email-service | SMTP2GO API calls, email template rendering | Consume queue message → verify SMTP2GO API called |
+| webhook-service | Webhook dispatch, timeout, error handling | Consume queue message → verify webhook POST dispatched |
+| shared-types | Type compilation checks | — |
+
+**CI pipeline additions:**
+```yaml
+  microservice-tests:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ env.NODE_VERSION }}', cache: 'pnpm' }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter form-processor test
+      - run: pnpm --filter email-service test
+      - run: pnpm --filter webhook-service test
+```
+
+---
+
 ## Implementation Order
 
 | Step | Description | Depends On |
@@ -2918,4 +3245,14 @@ After deployment:
 | 35 | Deploy to Railway | Steps 32, 33, 34 |
 | 36 | Configure Google Ads conversion tracking via GTM | Step 35 |
 | 37 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 35 |
+| 38 | **Microservices: Add Redis to Railway**, install BullMQ in backend | Step 35 |
+| 39 | **Microservices: Create `packages/shared-types`** with shared TypeScript interfaces | Step 38 |
+| 40 | **Microservices: Create `form-processor` service** with submission event handlers | Steps 38, 39 |
+| 41 | **Microservices: Create `email-service`** — extract SMTP2GO logic from backend | Steps 38, 39 |
+| 42 | **Microservices: Create `webhook-service`** — extract webhook logic from backend | Steps 38, 39 |
+| 43 | **Microservices: Dual-write** — update Strapi lifecycle hooks to publish to queue AND call services directly | Steps 40, 41, 42 |
+| 44 | **Microservices: Write tests** for form-processor, email-service, webhook-service; update CI pipeline | Steps 40, 41, 42 |
+| 45 | **Microservices: Validate queue-based path** — monitor both paths, verify no message loss | Steps 43, 44 |
+| 46 | **Microservices: Remove direct service calls** from lifecycle hooks (queue-only mode) | Step 45 |
+| 47 | **Microservices: Clean up** — remove unused `smtp2go.ts` and `webhook.ts` from backend services | Step 46 |
 | 38 | Migrate content in Strapi admin (with SEO fields filled) | Step 35 |

@@ -36,7 +36,7 @@ This is a migration of the ostrea.uk website (a Dutch legal/financial services f
      +----------------+ +---------+ +--------------------+
 ```
 
-**Data flow for form submissions**:
+**Data flow for form submissions (initial monolith)**:
 1. User submits form in Astro frontend (client-side JS)
 2. `POST /api/contact-submissions` or `POST /api/intake-submissions` to Strapi REST API
 3. Strapi saves record to PostgreSQL automatically
@@ -45,6 +45,18 @@ This is a migration of the ostrea.uk website (a Dutch legal/financial services f
    - Dispatches webhook POST to configured automation tool
 5. Frontend redirects user to thank-you page (`/[lang]/bedankt`)
 6. GTM conversion tag fires on thank-you page
+
+**Data flow for form submissions (after microservices migration — Phase 11)**:
+1. User submits form in Astro frontend (client-side JS)
+2. `POST /api/contact-submissions` or `POST /api/intake-submissions` to Strapi REST API
+3. Strapi saves record to PostgreSQL automatically
+4. Strapi `afterCreate` lifecycle hook publishes message to `submission.created` BullMQ queue
+5. Strapi returns `201` immediately — side effects process asynchronously
+6. **Form Processor** consumes message, builds email + webhook jobs, publishes to `submission.email` and `submission.webhook` queues
+7. **Email Service** consumes `submission.email`, sends via SMTP2GO with retry (3 attempts, exponential backoff)
+8. **Webhook Service** consumes `submission.webhook`, dispatches POST to automation tool with retry
+9. Frontend redirects user to thank-you page (`/[lang]/bedankt`)
+10. GTM conversion tag fires on thank-you page
 
 ---
 
@@ -60,7 +72,9 @@ This is a migration of the ostrea.uk website (a Dutch legal/financial services f
 | Email | SMTP2GO API | Transactional email for form notifications |
 | Webhooks | Custom Strapi lifecycle hooks | Push form data to Zapier/Make/n8n |
 | i18n | Strapi i18n plugin + Astro | Dutch (`nl`, default) + English (`en`) |
-| Deployment | Railway | Two Node.js services + one managed PostgreSQL database |
+| Deployment | Railway | Two Node.js services + one managed PostgreSQL database (initial); five services + database + Redis (after Phase 11) |
+| Message Queue | BullMQ + Redis | Async event processing for microservices (Phase 11) |
+| Microservices | Node.js workers | Form processor, email service, webhook service (Phase 11) |
 | Package Manager | pnpm | Monorepo workspaces via `pnpm-workspace.yaml` |
 | SEO | `@astrojs/sitemap`, JSON-LD, meta tags, hreflang | Comprehensive on-page and technical SEO |
 | Analytics | Google Tag Manager + GA4 | CMS-configurable container IDs |
@@ -191,10 +205,48 @@ web-ostreauk/
 │       ├── tsconfig.json
 │       └── package.json
 │
+│
+│   ## Phase 11 microservices additions:
+│   ├── form-processor/           # NEW: Form event orchestrator (Phase 11)
+│   │   ├── src/
+│   │   │   ├── index.ts          # BullMQ worker entry point
+│   │   │   ├── handlers/
+│   │   │   │   ├── contact-submission.ts
+│   │   │   │   └── intake-submission.ts
+│   │   │   └── queues.ts         # Queue definitions and connection config
+│   │   ├── tests/
+│   │   │   └── unit/
+│   │   ├── tsconfig.json
+│   │   └── package.json
+│   ├── email-service/            # NEW: SMTP2GO email sender (Phase 11)
+│   │   ├── src/
+│   │   │   ├── index.ts          # BullMQ worker entry point
+│   │   │   ├── smtp2go.ts        # Extracted SMTP2GO API client
+│   │   │   └── email-templates.ts
+│   │   ├── tests/
+│   │   │   └── unit/
+│   │   ├── tsconfig.json
+│   │   └── package.json
+│   └── webhook-service/          # NEW: Webhook dispatcher (Phase 11)
+│       ├── src/
+│       │   ├── index.ts          # BullMQ worker entry point
+│       │   └── webhook.ts        # Extracted webhook dispatcher
+│       ├── tests/
+│       │   └── unit/
+│       ├── tsconfig.json
+│       └── package.json
+│
+├── packages/                          # Phase 11: shared workspace packages
+│   └── shared-types/                  # Shared TypeScript interfaces across services
+│       ├── src/
+│       │   ├── submissions.ts         # ContactSubmission, IntakeSubmission, EmailContent
+│       │   └── events.ts              # Queue event payload types
+│       ├── tsconfig.json
+│       └── package.json
 ├── .github/
 │   └── workflows/
-│       └── ci.yml                     # CI pipeline: lint, unit, integration, functional, e2e
-├── pnpm-workspace.yaml                # points to apps/*
+│       └── ci.yml                     # CI pipeline: lint, unit, integration, functional, e2e, microservice tests
+├── pnpm-workspace.yaml                # points to apps/* and packages/*
 ├── package.json                       # Root workspace config
 ├── .gitignore
 ├── .env.example
@@ -260,11 +312,25 @@ pnpm --filter backend tsc --noEmit
 
 ### Railway Deployment
 
+**Initial deployment (Phases 1-10):**
+
 | Service | Build Command | Start Command |
 |---------|---------------|---------------|
 | backend | `pnpm --filter backend build` | `pnpm --filter backend start` |
 | frontend | `pnpm --filter frontend build` | `node apps/frontend/dist/server/entry.mjs` |
 | database | Managed by Railway | Managed by Railway |
+
+**After microservices migration (Phase 11):**
+
+| Service | Build Command | Start Command |
+|---------|---------------|---------------|
+| backend | `pnpm --filter backend build` | `pnpm --filter backend start` |
+| frontend | `pnpm --filter frontend build` | `node apps/frontend/dist/server/entry.mjs` |
+| form-processor | `pnpm --filter form-processor build` | `node apps/form-processor/dist/index.js` |
+| email-service | `pnpm --filter email-service build` | `node apps/email-service/dist/index.js` |
+| webhook-service | `pnpm --filter webhook-service build` | `node apps/webhook-service/dist/index.js` |
+| database | Managed by Railway | Managed by Railway |
+| redis | Managed by Railway | Managed by Railway |
 
 ---
 
@@ -569,6 +635,10 @@ Never commit secrets. Use `.env.example` as a template. Test environment uses `.
 - `STRAPI_API_TOKEN` — API token for authenticated Strapi requests
 - `PUBLIC_STRAPI_URL` — Public Strapi URL for client-side requests (prefixed `PUBLIC_` so Astro exposes it)
 
+**Microservices env vars (Phase 11):**
+- `REDIS_URL` — Redis connection string (shared across all queue producers/consumers)
+- Email service, webhook service, and form processor each use `REDIS_URL` plus their relevant service-specific vars (e.g., `SMTP2GO_API_KEY` for email-service, `WEBHOOK_URL` for webhook-service)
+
 ### HTML & SEO Conventions
 
 - **Semantic HTML**: Proper heading hierarchy — single `<h1>` per page, logical `<h2>`-`<h6>`
@@ -701,6 +771,37 @@ Every page renders:
 - **Frontend forms**: Client-side validation before submission, server-side validation in Strapi schema
 
 > Full error handling strategy with custom error classes, retry logic, and criticality matrix: `MIGRATION_PLAN.md` § Phase 5: Error Handling
+
+### Microservices Architecture (Phase 11)
+
+> Full details: `MIGRATION_PLAN.md` § Phase 11: Microservices Migration
+
+After the initial monolithic deployment is stable, the architecture evolves toward independently deployable microservices for improved fault isolation, scalability, and deployment independence.
+
+**Service decomposition:**
+
+| Service | Responsibility | Technology |
+|---------|---------------|------------|
+| **Strapi CMS** | Content management, REST API, form storage | Strapi v5 (unchanged) |
+| **Form Processor** | Consumes form events, orchestrates side effects | Node.js + BullMQ worker |
+| **Email Service** | Sends transactional emails via SMTP2GO | Node.js + BullMQ worker |
+| **Webhook Service** | Dispatches webhook POSTs to automation tools | Node.js + BullMQ worker |
+
+**Message queue**: BullMQ with Railway-managed Redis. Provides async processing, automatic retry with exponential backoff (3 attempts), and dead letter queues for failed messages.
+
+**Queue topology:**
+
+| Queue | Producer | Consumer |
+|-------|----------|----------|
+| `submission.created` | Strapi lifecycle hook | Form Processor |
+| `submission.email` | Form Processor | Email Service |
+| `submission.webhook` | Form Processor | Webhook Service |
+
+**Shared types**: `packages/shared-types` workspace package provides TypeScript interfaces (`SubmissionCreatedEvent`, `EmailJobPayload`, `WebhookJobPayload`) shared across all services.
+
+**Migration strategy**: Incremental with a dual-write period — both synchronous and queue-based paths are active during transition. Only remove synchronous path after queue-based path is validated. See `MIGRATION_PLAN.md` § Phase 11.10 for step-by-step migration plan.
+
+**Monitoring**: BullMQ dashboard (Bull Board) for queue depth, DLQ alerting, Railway health checks (`GET /health`) on each service, `pino` structured JSON logging.
 
 ### Security
 
@@ -839,7 +940,7 @@ Target: **WCAG 2.1 Level AA** (EU/Netherlands legal requirement).
 
 ## Implementation Order
 
-The project follows a 30-step implementation plan with explicit dependencies. See `MIGRATION_PLAN.md` for full details.
+The project follows a 47-step implementation plan with explicit dependencies. See `MIGRATION_PLAN.md` for full details.
 
 **High-level phases:**
 
@@ -851,8 +952,9 @@ The project follows a 30-step implementation plan with explicit dependencies. Se
 6. **SEO & Analytics** (Steps 22-23): Sitemap, robots.txt, GTM, GA4, cookie consent, conversion tracking
 7. **Deployment** (Steps 24-27): Railway config, Lighthouse audit, full test suite, deploy
 8. **Post-Deploy** (Steps 28-30): Google Ads tracking, webhook automation, content migration
+9. **Microservices Migration** (Steps 38-47): Decompose monolith into form-processor, email-service, and webhook-service with BullMQ + Redis message queue
 
-**Critical rule**: All tests must pass (Step 26) before deployment (Step 27).
+**Critical rule**: All tests must pass (Step 34) before deployment (Step 35). Microservices migration (Steps 38-47) happens after stable production deployment.
 
 ---
 
@@ -874,7 +976,8 @@ The project follows a 30-step implementation plan with explicit dependencies. Se
 |---------|--------|---------|------|
 | Cloudinary | cloudinary.com | Image hosting, CDN, optimization | `CLOUDINARY_NAME`, `CLOUDINARY_KEY`, `CLOUDINARY_SECRET` |
 | SMTP2GO | smtp2go.com / api.smtp2go.com | Transactional email | `SMTP2GO_API_KEY` |
-| Railway | railway.app | Hosting (2 services + PostgreSQL) | Railway dashboard |
+| Railway | railway.app | Hosting (2-5 services + PostgreSQL + Redis) | Railway dashboard |
+| Redis | Railway managed | Message queue backing store for BullMQ (Phase 11) | `REDIS_URL` env var |
 | Google Tag Manager | tagmanager.google.com | Tag management | GTM container ID in CMS |
 | Google Analytics 4 | analytics.google.com | Analytics | GA4 measurement ID in CMS |
 | Google Ads | ads.google.com | Conversion tracking | Google Ads ID in CMS |
