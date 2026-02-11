@@ -70,9 +70,13 @@ web-ostreauk/
 │   │   │   ├── layouts/
 │   │   │   │   └── BaseLayout.astro
 │   │   │   ├── lib/
-│   │   │   │   ├── strapi.ts      # Strapi API client
-│   │   │   │   ├── i18n.ts        # i18n utilities
-│   │   │   │   └── seo.ts         # SEO helpers (structured data, meta)
+│   │   │   │   ├── strapi.ts        # Typed Strapi REST API client
+│   │   │   │   ├── i18n.ts          # i18n utilities + translation objects
+│   │   │   │   ├── seo.ts           # SEO helpers (structured data, meta)
+│   │   │   │   ├── form-handler.ts  # Reusable form submission + error display
+│   │   │   │   └── cloudinary.ts    # Cloudinary URL builder with responsive sizing
+│   │   │   ├── types/
+│   │   │   │   └── strapi.ts        # TypeScript interfaces for Strapi API responses
 │   │   │   ├── pages/
 │   │   │   │   ├── index.astro            # Redirect to /nl
 │   │   │   │   ├── [lang]/
@@ -130,8 +134,14 @@ web-ostreauk/
 │       │   ├── components/
 │       │   │   └── shared/            # Reusable components
 │       │   ├── services/
-│       │   │   ├── smtp2go.ts         # SMTP2GO API email service
-│       │   │   └── webhook.ts         # Webhook dispatcher service
+│       │   │   ├── smtp2go.ts             # SMTP2GO API email service
+│       │   │   ├── webhook.ts             # Webhook dispatcher service
+│       │   │   ├── email-templates.ts     # Reusable email HTML/text builders
+│       │   │   └── submission-handler.ts  # Shared afterCreate lifecycle handler
+│       │   ├── types/
+│       │   │   └── index.ts               # Shared TypeScript interfaces (submissions, payloads)
+│       │   ├── utils/
+│       │   │   └── env.ts                 # Environment variable validation helper
 │       │   └── extensions/
 │       ├── tests/
 │       │   ├── unit/                  # Unit tests (Vitest)
@@ -170,11 +180,193 @@ web-ostreauk/
 │       └── ci.yml                   # CI pipeline: lint, unit, integration, e2e
 ├── pnpm-workspace.yaml
 ├── package.json                  # Root workspace config
+├── .eslintrc.cjs                # ESLint config (shared rules)
+├── .prettierrc                  # Prettier formatting config
 ├── .gitignore
 ├── .env.example
 ├── .env.test                     # Test environment variables (committed, no secrets)
 └── MIGRATION_PLAN.md
 ```
+
+---
+
+## Code Quality Standards
+
+### TypeScript Configuration
+
+Both apps use strict TypeScript to catch errors at compile time and enforce type safety across the codebase.
+
+**Shared strict settings (each app's `tsconfig.json`):**
+
+```json
+{
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  }
+}
+```
+
+### Linting & Formatting
+
+| Tool | Config | Purpose |
+|------|--------|---------|
+| ESLint | `@typescript-eslint/recommended` | Type-aware code quality rules, unused variable detection, import ordering |
+| Prettier | `singleQuote: true`, `trailingComma: 'all'` | Consistent formatting across all files |
+
+**Root config files:**
+
+`.eslintrc.cjs`:
+```javascript
+module.exports = {
+  root: true,
+  parser: '@typescript-eslint/parser',
+  plugins: ['@typescript-eslint'],
+  extends: [
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended',
+    'prettier', // Disables ESLint rules that conflict with Prettier
+  ],
+  rules: {
+    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/explicit-function-return-type': 'off',
+    '@typescript-eslint/no-explicit-any': 'warn',
+  },
+};
+```
+
+`.prettierrc`:
+```json
+{
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "tabWidth": 2,
+  "semi": true
+}
+```
+
+**npm scripts (root `package.json`):**
+```json
+{
+  "scripts": {
+    "lint": "eslint apps/*/src --ext .ts,.astro",
+    "lint:fix": "eslint apps/*/src --ext .ts,.astro --fix",
+    "format": "prettier --write 'apps/*/src/**/*.{ts,astro,json,css}'",
+    "format:check": "prettier --check 'apps/*/src/**/*.{ts,astro,json,css}'"
+  }
+}
+```
+
+### Commenting Conventions
+
+Comments should explain **why**, not **what**. Self-explanatory code does not need comments. All public APIs require JSDoc documentation.
+
+#### Module-Level Comments
+
+Every file starts with a JSDoc block explaining its purpose, what uses it, and relevant external references.
+
+```typescript
+/**
+ * SMTP2GO email service for transactional notifications.
+ *
+ * Sends HTML + plain text emails via the SMTP2GO REST API.
+ * Used by lifecycle hooks to notify admins of form submissions.
+ *
+ * @see https://www.smtp2go.com/docs/api/
+ * @module services/smtp2go
+ */
+```
+
+#### JSDoc for Exported Functions, Classes, and Interfaces
+
+All exports must have JSDoc documenting purpose, parameters, return values, thrown errors, and a usage example for non-trivial functions.
+
+```typescript
+/**
+ * Sends a transactional email via the SMTP2GO REST API.
+ *
+ * @param payload - Email fields (recipients, subject, body). The API key
+ *   is injected automatically from the SMTP2GO_API_KEY env var.
+ * @throws {Error} If SMTP2GO_API_KEY is not configured
+ * @throws {Error} If the SMTP2GO API returns a non-200 response
+ * @throws {Error} If there is a network-level failure (DNS, timeout)
+ *
+ * @example
+ * await sendEmail({
+ *   to: ['admin@ostrea.uk'],
+ *   sender: 'noreply@ostrea.uk',
+ *   subject: 'New contact submission',
+ *   html_body: '<p>Hello</p>',
+ *   text_body: 'Hello',
+ * });
+ */
+async function sendEmail(payload: Omit<SMTP2GOPayload, 'api_key'>): Promise<void> {
+```
+
+#### Inline Comments
+
+Use inline comments to explain:
+- **Business rules** — why something works a certain way (e.g., "webhook is non-critical because...")
+- **Non-obvious decisions** — trade-offs, workarounds, edge cases
+- **Complex logic** — regex patterns, bitwise operations, algorithm steps
+
+```typescript
+// Webhook is non-critical — swallow error so form submission still
+// succeeds even if the automation tool endpoint is down
+
+// Use nullish coalescing because phone is optional and may be null
+// from the Strapi API, but we still need a display value in the email
+const phone = result.phone ?? 'Niet opgegeven';
+```
+
+**Do NOT comment:**
+- Self-explanatory code (`const name = result.name; // get name`)
+- Type annotations that TypeScript already enforces
+- Closing braces or obvious control flow
+
+#### TODO / FIXME Conventions
+
+```typescript
+// TODO(#12): Add retry logic for transient SMTP2GO failures (max 3, exponential backoff)
+// FIXME: Webhook timeout should be configurable via WEBHOOK_TIMEOUT_MS env var
+```
+
+Include a GitHub issue number where applicable for traceability.
+
+### Reusable Module Strategy
+
+Extract shared logic into standalone modules to eliminate duplication and enable independent unit testing. Each reusable module must:
+
+1. **Single responsibility** — do one thing well, with a clear public API
+2. **Typed exports** — export TypeScript types/interfaces alongside implementations
+3. **JSDoc documented** — module header + JSDoc on all exports
+4. **Independently testable** — all external dependencies injectable or mockable
+5. **No side effects on import** — no code runs at module load time
+
+#### Backend Reusable Modules
+
+| Module | Path | Reused By | Purpose |
+|--------|------|-----------|---------|
+| Shared types | `src/types/index.ts` | All services, lifecycle hooks, tests | TypeScript interfaces for submission data, email payloads, webhook payloads |
+| Email template builder | `src/services/email-templates.ts` | Both lifecycle hooks | Generate HTML + plain text email content from submission data |
+| Submission lifecycle handler | `src/services/submission-handler.ts` | Both lifecycle hooks | Shared afterCreate pattern: email (critical) + webhook (non-critical) |
+| Environment validation | `src/utils/env.ts` | Bootstrap, services | Required/optional env var checking with typed results |
+
+#### Frontend Reusable Modules
+
+| Module | Path | Reused By | Purpose |
+|--------|------|-----------|---------|
+| Strapi response types | `src/types/strapi.ts` | All pages, components, lib modules | TypeScript interfaces for Strapi REST API responses |
+| Form submission handler | `src/lib/form-handler.ts` | ContactForm.astro, IntakeForm.astro | Shared validation, submit, loading state, and error display logic |
+| Cloudinary URL builder | `src/lib/cloudinary.ts` | Hero, BlogCard, SEOHead, all image components | Build optimized Cloudinary URLs with `f_auto`, `q_auto`, responsive sizing |
 
 ---
 
@@ -350,7 +542,268 @@ web-ostreauk/
 - **IntakeForm**: Client-side form with service type selector
 - **LanguageSwitcher**: NL/EN toggle that preserves current page
 
-### 3.5 Design Direction
+### 3.5 Strapi Response Types (`src/types/strapi.ts`)
+
+Shared TypeScript interfaces for all Strapi REST API responses. Used by pages, components, and lib modules to ensure type safety when consuming CMS data.
+
+```typescript
+/**
+ * TypeScript interfaces for Strapi REST API responses.
+ *
+ * These types mirror the Strapi v5 response format and are used by
+ * the Strapi API client, page components, and test fixtures.
+ * Update these when content type schemas change in Strapi.
+ *
+ * @module types/strapi
+ */
+
+/** Generic Strapi collection response wrapper */
+export interface StrapiCollectionResponse<T> {
+  data: StrapiEntity<T>[];
+  meta: { pagination: StrapiPagination };
+}
+
+/** Generic Strapi single-item response wrapper */
+export interface StrapiSingleResponse<T> {
+  data: StrapiEntity<T>;
+}
+
+/** A Strapi entity with id and typed attributes */
+export interface StrapiEntity<T> {
+  id: number;
+  attributes: T;
+}
+
+/** Strapi pagination metadata */
+export interface StrapiPagination {
+  page: number;
+  pageSize: number;
+  pageCount: number;
+  total: number;
+}
+
+/** Page content type attributes */
+export interface PageAttributes {
+  title: string;
+  slug: string;
+  content: unknown; // Rich Text Blocks — rendered by Astro
+  hero_image: StrapiMedia | null;
+  hero_title: string | null;
+  hero_subtitle: string | null;
+  show_in_nav: boolean;
+  nav_order: number | null;
+  seo: SEOComponent | null;
+  locale: string;
+}
+
+/** Shared SEO component fields */
+export interface SEOComponent {
+  seo_title: string | null;
+  seo_description: string | null;
+  canonical_url: string | null;
+  og_image: StrapiMedia | null;
+  no_index: boolean;
+  focus_keyword: string | null;
+  structured_data_type: 'Organization' | 'LocalBusiness' | 'Service' | 'BlogPosting' | 'WebPage';
+}
+
+/** Strapi media object (Cloudinary-hosted) */
+export interface StrapiMedia {
+  url: string;
+  alternativeText: string | null;
+  width: number;
+  height: number;
+}
+```
+
+### 3.6 Form Submission Handler (`src/lib/form-handler.ts`)
+
+Reusable client-side form handler shared between ContactForm.astro and IntakeForm.astro. Eliminates duplicated validation, submit, loading state, and error display logic.
+
+```typescript
+/**
+ * Reusable form submission handler for client-side forms.
+ *
+ * Handles the full submission lifecycle: client-side validation,
+ * API submission to Strapi, loading state management, error display,
+ * and success redirect. Used by both ContactForm and IntakeForm.
+ *
+ * @module lib/form-handler
+ */
+
+import { t, type Locale } from './i18n';
+
+interface FormHandlerOptions {
+  /** The HTML form element to handle */
+  form: HTMLFormElement;
+  /** Strapi API endpoint path (e.g., '/api/contact-submissions') */
+  endpoint: string;
+  /** Current locale for redirect URL and error messages */
+  locale: Locale;
+}
+
+/**
+ * Initializes form submission handling on a form element.
+ *
+ * Attaches a submit event listener that:
+ * 1. Validates all fields client-side
+ * 2. Disables the submit button and shows loading text
+ * 3. POSTs form data as JSON to the Strapi API endpoint
+ * 4. Redirects to the thank-you page on success
+ * 5. Displays a localized error message on failure
+ *
+ * @param options - Form element, API endpoint, and current locale
+ *
+ * @example
+ * // In a <script> tag inside ContactForm.astro:
+ * import { initFormHandler } from '../lib/form-handler';
+ *
+ * const form = document.querySelector('#contact-form') as HTMLFormElement;
+ * initFormHandler({
+ *   form,
+ *   endpoint: '/api/contact-submissions',
+ *   locale: 'nl',
+ * });
+ */
+export function initFormHandler({ form, endpoint, locale }: FormHandlerOptions): void {
+  const submitButton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+  const errorContainer = form.querySelector('[data-form-error]') as HTMLElement;
+
+  // Store original button text for restoring after error
+  const originalButtonText = submitButton.textContent;
+
+  form.addEventListener('submit', async (event: SubmitEvent) => {
+    event.preventDefault();
+
+    // Clear previous errors
+    errorContainer.textContent = '';
+    errorContainer.hidden = true;
+
+    // Client-side validation via native HTML5 constraint API
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    // Disable button to prevent double-submit
+    submitButton.disabled = true;
+    submitButton.textContent = t('form.submitting', locale);
+
+    try {
+      const response = await fetch(`${import.meta.env.PUBLIC_STRAPI_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: Object.fromEntries(new FormData(form)) }),
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        if (response.status === 400) {
+          // Strapi validation error — show field-level message
+          throw new Error(body?.error?.message ?? t('form.error.validation', locale));
+        }
+        throw new Error(t('form.error.server', locale));
+      }
+
+      // Success — redirect to localized thank-you page
+      window.location.href = `/${locale}/bedankt`;
+    } catch (error) {
+      errorContainer.textContent = (error as Error).message;
+      errorContainer.hidden = false;
+      submitButton.disabled = false;
+      submitButton.textContent = originalButtonText;
+    }
+  });
+}
+```
+
+### 3.7 Cloudinary URL Builder (`src/lib/cloudinary.ts`)
+
+Reusable utility for generating optimized Cloudinary image URLs. Used by every component that renders images (Hero, BlogCard, SEOHead, etc.) to ensure consistent optimization.
+
+```typescript
+/**
+ * Cloudinary URL builder for optimized image delivery.
+ *
+ * Generates Cloudinary URLs with automatic format (f_auto),
+ * quality (q_auto), and responsive width transformations.
+ * Centralizes image URL logic so all components use consistent
+ * optimization settings.
+ *
+ * @module lib/cloudinary
+ */
+
+interface ImageOptions {
+  /** Target width in pixels (omit for original size) */
+  width?: number;
+  /** Target height in pixels (omit for auto based on aspect ratio) */
+  height?: number;
+  /** Crop mode (default: 'fill') */
+  crop?: 'fill' | 'fit' | 'scale' | 'thumb';
+}
+
+/**
+ * Builds an optimized Cloudinary image URL with transformations.
+ *
+ * Always applies `f_auto` (automatic format: WebP/AVIF where supported)
+ * and `q_auto` (automatic quality optimization). Additional transforms
+ * can be specified via the options parameter.
+ *
+ * @param url - Full Cloudinary URL or public ID from Strapi media
+ * @param options - Optional width, height, and crop settings
+ * @returns URL string with Cloudinary transformation parameters applied
+ *
+ * @example
+ * // Auto-optimized, no resize
+ * cloudinaryUrl('https://res.cloudinary.com/demo/image/upload/hero.jpg')
+ * // => 'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/hero.jpg'
+ *
+ * // Resized to 800px wide
+ * cloudinaryUrl('https://res.cloudinary.com/demo/image/upload/hero.jpg', { width: 800 })
+ * // => 'https://res.cloudinary.com/demo/image/upload/f_auto,q_auto,w_800,c_fill/hero.jpg'
+ */
+export function cloudinaryUrl(url: string, options?: ImageOptions): string {
+  // Build transformation string from options
+  const transforms = ['f_auto', 'q_auto'];
+  if (options?.width) transforms.push(`w_${options.width}`);
+  if (options?.height) transforms.push(`h_${options.height}`);
+  if (options?.width || options?.height) transforms.push(`c_${options?.crop ?? 'fill'}`);
+
+  const transformStr = transforms.join(',');
+
+  // Insert transformations into the Cloudinary URL path
+  // Cloudinary URLs follow: .../image/upload/{transforms}/{public_id}
+  return url.replace('/image/upload/', `/image/upload/${transformStr}/`);
+}
+
+/**
+ * Generates a srcset string for responsive images.
+ *
+ * Creates multiple sized variants for use with the HTML `srcset` attribute,
+ * enabling browsers to load the most appropriate image size.
+ *
+ * @param url - Full Cloudinary URL from Strapi media
+ * @param widths - Array of pixel widths to generate (default: [400, 800, 1200])
+ * @returns srcset string for use in <img> or <source> elements
+ *
+ * @example
+ * <img
+ *   src={cloudinaryUrl(image.url, { width: 800 })}
+ *   srcset={cloudinarySrcset(image.url)}
+ *   sizes="(max-width: 768px) 100vw, 800px"
+ * />
+ */
+export function cloudinarySrcset(
+  url: string,
+  widths: number[] = [400, 800, 1200],
+): string {
+  return widths
+    .map((w) => `${cloudinaryUrl(url, { width: w })} ${w}w`)
+    .join(', ');
+}
+```
+
+### 3.8 Design Direction
 - Fresh, modern design (not replicating current site)
 - Keep brand colors (green `#7AAC2D` based on current CTA, brown/gold from logo)
 - Clean typography, generous whitespace
@@ -388,9 +841,18 @@ Use the SMTP2GO API (smtp2go.com) to send email notifications when forms are sub
 #### SMTP2GO Service (`apps/backend/src/services/smtp2go.ts`)
 
 ```typescript
-// SMTP2GO API integration for transactional email
-// Docs: https://www.smtp2go.com/docs/api/
+/**
+ * SMTP2GO email service for transactional notifications.
+ *
+ * Sends HTML + plain text emails via the SMTP2GO REST API.
+ * Used by the shared submission handler to notify admins
+ * when contact or intake forms are submitted.
+ *
+ * @see https://www.smtp2go.com/docs/api/
+ * @module services/smtp2go
+ */
 
+/** SMTP2GO API request payload shape */
 interface SMTP2GOPayload {
   api_key: string;
   to: string[];
@@ -400,6 +862,16 @@ interface SMTP2GOPayload {
   text_body: string;
 }
 
+/**
+ * Sends a transactional email via the SMTP2GO REST API.
+ *
+ * The API key is injected automatically from the SMTP2GO_API_KEY env var.
+ * See Phase 5 for detailed error handling additions (network errors,
+ * response parsing, structured logging).
+ *
+ * @param payload - Email fields (recipients, sender, subject, body)
+ * @throws {Error} If the SMTP2GO API returns a non-200 response
+ */
 async function sendEmail(payload: Omit<SMTP2GOPayload, 'api_key'>): Promise<void> {
   const response = await fetch('https://api.smtp2go.com/v3/email/send', {
     method: 'POST',
@@ -437,14 +909,34 @@ Push form submission data to an external webhook URL so automation tools (Zapier
 #### Webhook Service (`apps/backend/src/services/webhook.ts`)
 
 ```typescript
-// Generic webhook dispatcher for form submissions
+/**
+ * Generic webhook dispatcher for form submission events.
+ *
+ * POSTs form submission data to an external webhook URL so automation
+ * tools (Zapier, Make, n8n) can pick up the data for further processing.
+ * This service is non-critical — failures are logged but never thrown.
+ *
+ * See Phase 5 for detailed error handling additions (AbortController
+ * timeout, structured logging, network error handling).
+ *
+ * @module services/webhook
+ */
 
+/** Webhook POST request payload shape */
 interface WebhookPayload {
   event: 'contact_submission.created' | 'intake_submission.created';
   timestamp: string;
   data: Record<string, unknown>;
 }
 
+/**
+ * Dispatches a webhook POST to the configured automation tool endpoint.
+ *
+ * Skips silently if WEBHOOK_URL is not configured. Logs errors but
+ * does NOT throw — webhook delivery must never break form submissions.
+ *
+ * @param payload - Event type, timestamp, and submission data to send
+ */
 async function dispatchWebhook(payload: WebhookPayload): Promise<void> {
   const webhookUrl = process.env.WEBHOOK_URL;
   if (!webhookUrl) {
@@ -513,114 +1005,315 @@ Every form submission triggers an HTTP POST to the configured `WEBHOOK_URL` with
 | `X-Webhook-Secret` | Shared secret for verifying authenticity (from `WEBHOOK_SECRET` env var) |
 | `X-Webhook-Event` | Event type: `contact_submission.created` or `intake_submission.created` |
 
-### 4.4 Strapi Lifecycle Hooks
+### 4.4 Shared Types (`apps/backend/src/types/index.ts`)
 
-Both email and webhook are triggered via Strapi `afterCreate` lifecycle hooks on the submission content types.
+Centralized TypeScript interfaces reused across services, lifecycle hooks, and tests.
+
+```typescript
+/**
+ * Shared TypeScript interfaces for form submissions and service payloads.
+ *
+ * These types are the single source of truth for submission data shapes,
+ * used by services, lifecycle hooks, and test fixtures.
+ *
+ * @module types
+ */
+
+/** Fields stored for a contact form submission */
+export interface ContactSubmission {
+  id: number;
+  name: string;
+  email: string;
+  phone: string | null;
+  message: string;
+  createdAt: string;
+}
+
+/** Fields stored for an intake form submission */
+export interface IntakeSubmission {
+  id: number;
+  name: string;
+  email: string;
+  phone: string | null;
+  company_name: string | null;
+  service_type: 'bedrijfsjuristen' | 'trust_formation' | 'belastingadvies' | null;
+  message: string | null;
+  createdAt: string;
+}
+
+/** Rendered email content ready to send via SMTP2GO */
+export interface EmailContent {
+  subject: string;
+  html_body: string;
+  text_body: string;
+}
+```
+
+### 4.5 Email Template Builder (`apps/backend/src/services/email-templates.ts`)
+
+Reusable module that generates email content from submission data. Used by both lifecycle hooks via the shared submission handler, eliminating duplicated HTML template strings.
+
+```typescript
+/**
+ * Email template builder for form submission notifications.
+ *
+ * Generates consistent HTML + plain text email content from submission data.
+ * Reused by both contact and intake lifecycle hooks via submission-handler.
+ *
+ * @module services/email-templates
+ */
+
+import type { ContactSubmission, IntakeSubmission, EmailContent } from '../types';
+
+/** A single field to render in the email body */
+interface EmailField {
+  label: string;
+  value: string;
+}
+
+/**
+ * Renders an array of fields into an HTML email body.
+ *
+ * @param fields - Label/value pairs to render
+ * @param heading - Email heading text (h2)
+ * @returns HTML string with styled field list
+ */
+function renderHtml(fields: EmailField[], heading: string): string {
+  const rows = fields
+    .map((f) => `<p><strong>${f.label}:</strong> ${f.value}</p>`)
+    .join('\n      ');
+  return `
+    <h2>${heading}</h2>
+    ${rows}
+  `;
+}
+
+/**
+ * Renders an array of fields into a plain text email body.
+ *
+ * @param fields - Label/value pairs to render
+ * @returns Plain text string with one field per line
+ */
+function renderPlainText(fields: EmailField[]): string {
+  return fields.map((f) => `${f.label}: ${f.value}`).join('\n');
+}
+
+/**
+ * Builds notification email content for a contact form submission.
+ *
+ * @param submission - The saved contact submission record from Strapi
+ * @returns Email content with Dutch subject, HTML body, and plain text body
+ */
+export function buildContactEmail(submission: ContactSubmission): EmailContent {
+  const fields: EmailField[] = [
+    { label: 'Naam', value: submission.name },
+    { label: 'Email', value: submission.email },
+    { label: 'Telefoon', value: submission.phone ?? 'Niet opgegeven' },
+    { label: 'Bericht', value: submission.message },
+  ];
+  return {
+    subject: `Nieuw contactformulier: ${submission.name}`,
+    html_body: renderHtml(fields, 'Nieuw contactformulier ontvangen'),
+    text_body: renderPlainText(fields),
+  };
+}
+
+/**
+ * Builds notification email content for an intake form submission.
+ *
+ * @param submission - The saved intake submission record from Strapi
+ * @returns Email content with Dutch subject, HTML body, and plain text body
+ */
+export function buildIntakeEmail(submission: IntakeSubmission): EmailContent {
+  const fields: EmailField[] = [
+    { label: 'Naam', value: submission.name },
+    { label: 'Email', value: submission.email },
+    { label: 'Telefoon', value: submission.phone ?? 'Niet opgegeven' },
+    { label: 'Bedrijfsnaam', value: submission.company_name ?? 'Niet opgegeven' },
+    { label: 'Dienst', value: submission.service_type ?? 'Niet opgegeven' },
+    { label: 'Bericht', value: submission.message ?? 'Geen bericht' },
+  ];
+  return {
+    subject: `Nieuwe intake aanvraag: ${submission.name} — ${submission.service_type}`,
+    html_body: renderHtml(fields, 'Nieuwe intake aanvraag ontvangen'),
+    text_body: renderPlainText(fields),
+  };
+}
+```
+
+### 4.6 Submission Lifecycle Handler (`apps/backend/src/services/submission-handler.ts`)
+
+Shared handler that orchestrates the afterCreate pipeline for both submission types. Eliminates duplicated try/catch + email + webhook logic in each lifecycle file.
+
+```typescript
+/**
+ * Shared lifecycle handler for form submission afterCreate hooks.
+ *
+ * Orchestrates the post-submission pipeline: email notification (critical)
+ * followed by webhook dispatch (non-critical). Ensures consistent error
+ * handling across both contact and intake submission types.
+ *
+ * @module services/submission-handler
+ */
+
+import type { EmailContent } from '../types';
+
+interface WebhookEvent {
+  event: 'contact_submission.created' | 'intake_submission.created';
+}
+
+interface SubmissionHandlerOptions<T> {
+  /** The saved submission record from Strapi afterCreate event */
+  result: T;
+  /** Function that builds email content from the submission data */
+  buildEmail: (submission: T) => EmailContent;
+  /** Webhook event name dispatched to automation tools */
+  webhookEvent: WebhookEvent['event'];
+  /** Function that extracts webhook payload data from the submission */
+  buildWebhookData: (submission: T) => Record<string, unknown>;
+}
+
+/**
+ * Handles the afterCreate pipeline for a form submission.
+ *
+ * Pipeline steps:
+ * 1. Send email notification via SMTP2GO (critical — throws on failure)
+ * 2. Dispatch webhook to automation tool (non-critical — logs on failure)
+ *
+ * The submission is already saved to PostgreSQL before this runs (afterCreate),
+ * so data is safe regardless of side-effect failures.
+ *
+ * @param options - Submission data, email builder, and webhook config
+ * @throws {Error} If email notification fails (email is a critical side effect)
+ *
+ * @example
+ * // In a lifecycle hook:
+ * await handleSubmissionCreated({
+ *   result,
+ *   buildEmail: buildContactEmail,
+ *   webhookEvent: 'contact_submission.created',
+ *   buildWebhookData: (r) => ({ id: r.id, name: r.name, email: r.email }),
+ * });
+ */
+export async function handleSubmissionCreated<T extends { id: number }>({
+  result,
+  buildEmail,
+  webhookEvent,
+  buildWebhookData,
+}: SubmissionHandlerOptions<T>): Promise<void> {
+  // Build email content using the type-specific template builder
+  const email = buildEmail(result);
+
+  // 1. Email is critical — propagate errors to the lifecycle hook caller
+  try {
+    await strapi.service('api::services.smtp2go').sendEmail({
+      to: [process.env.ADMIN_NOTIFICATION_EMAIL],
+      sender: process.env.SMTP2GO_SENDER_EMAIL,
+      ...email,
+    });
+  } catch (error) {
+    strapi.log.error('Submission email failed:', {
+      submissionId: result.id,
+      event: webhookEvent,
+      error: error.message,
+    });
+    throw error;
+  }
+
+  // 2. Webhook is non-critical — log and swallow errors
+  try {
+    await strapi.service('api::services.webhook').dispatchWebhook({
+      event: webhookEvent,
+      timestamp: new Date().toISOString(),
+      data: buildWebhookData(result),
+    });
+  } catch (error) {
+    strapi.log.error('Submission webhook failed:', {
+      submissionId: result.id,
+      event: webhookEvent,
+      error: error.message,
+    });
+    // Non-critical — do not rethrow
+  }
+}
+```
+
+### 4.7 Strapi Lifecycle Hooks
+
+Both email and webhook are triggered via Strapi `afterCreate` lifecycle hooks on the submission content types. Each hook delegates to the shared `handleSubmissionCreated` handler.
 
 #### Contact Submission Lifecycle (`apps/backend/src/api/contact-submission/content-types/contact-submission/lifecycles.ts`)
 
+Uses the shared `handleSubmissionCreated` handler and `buildContactEmail` template builder — no duplicated email/webhook logic.
+
 ```typescript
+/**
+ * Contact submission afterCreate lifecycle hook.
+ *
+ * Delegates to the shared submission handler which sends an email
+ * notification (critical) and dispatches a webhook (non-critical).
+ * The submission is already saved to PostgreSQL before this runs.
+ */
+import { handleSubmissionCreated } from '../../../services/submission-handler';
+import { buildContactEmail } from '../../../services/email-templates';
+import type { ContactSubmission } from '../../../types';
+
 export default {
-  async afterCreate(event) {
+  async afterCreate(event: { result: ContactSubmission }) {
     const { result } = event;
 
-    // 1. Send email notification via SMTP2GO (critical — throws on failure)
-    try {
-      await strapi.service('api::services.smtp2go').sendEmail({
-        to: [process.env.ADMIN_NOTIFICATION_EMAIL],
-        sender: process.env.SMTP2GO_SENDER_EMAIL,
-        subject: `Nieuw contactformulier: ${result.name}`,
-        html_body: `
-          <h2>Nieuw contactformulier ontvangen</h2>
-          <p><strong>Naam:</strong> ${result.name}</p>
-          <p><strong>Email:</strong> ${result.email}</p>
-          <p><strong>Telefoon:</strong> ${result.phone ?? 'Niet opgegeven'}</p>
-          <p><strong>Bericht:</strong></p>
-          <p>${result.message}</p>
-        `,
-        text_body: `Naam: ${result.name}\nEmail: ${result.email}\nTelefoon: ${result.phone ?? 'N/A'}\nBericht: ${result.message}`,
-      });
-    } catch (error) {
-      strapi.log.error('Contact submission email failed:', { submissionId: result.id, error: error.message });
-      // Email is critical — rethrow so Strapi logs the lifecycle error
-      // The submission is already saved to DB at this point (afterCreate)
-      throw error;
-    }
-
-    // 2. Dispatch webhook for automation tools (non-critical — logs but does not throw)
-    try {
-      await strapi.service('api::services.webhook').dispatchWebhook({
-        event: 'contact_submission.created',
-        timestamp: new Date().toISOString(),
-        data: {
-          id: result.id,
-          name: result.name,
-          email: result.email,
-          phone: result.phone,
-          message: result.message,
-          createdAt: result.createdAt,
-        },
-      });
-    } catch (error) {
-      strapi.log.error('Contact submission webhook failed:', { submissionId: result.id, error: error.message });
-      // Webhook is non-critical — swallow error, submission is already saved
-    }
+    await handleSubmissionCreated({
+      result,
+      buildEmail: buildContactEmail,
+      webhookEvent: 'contact_submission.created',
+      buildWebhookData: (r) => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        phone: r.phone,
+        message: r.message,
+        createdAt: r.createdAt,
+      }),
+    });
   },
 };
 ```
 
 #### Intake Submission Lifecycle (`apps/backend/src/api/intake-submission/content-types/intake-submission/lifecycles.ts`)
 
+Same pattern as contact — delegates to the shared handler with intake-specific email template and webhook data.
+
 ```typescript
+/**
+ * Intake submission afterCreate lifecycle hook.
+ *
+ * Delegates to the shared submission handler which sends an email
+ * notification (critical) and dispatches a webhook (non-critical).
+ * The submission is already saved to PostgreSQL before this runs.
+ */
+import { handleSubmissionCreated } from '../../../services/submission-handler';
+import { buildIntakeEmail } from '../../../services/email-templates';
+import type { IntakeSubmission } from '../../../types';
+
 export default {
-  async afterCreate(event) {
+  async afterCreate(event: { result: IntakeSubmission }) {
     const { result } = event;
 
-    // 1. Send email notification via SMTP2GO (critical — throws on failure)
-    try {
-      await strapi.service('api::services.smtp2go').sendEmail({
-        to: [process.env.ADMIN_NOTIFICATION_EMAIL],
-        sender: process.env.SMTP2GO_SENDER_EMAIL,
-        subject: `Nieuwe intake aanvraag: ${result.name} — ${result.service_type}`,
-        html_body: `
-          <h2>Nieuwe intake aanvraag ontvangen</h2>
-          <p><strong>Naam:</strong> ${result.name}</p>
-          <p><strong>Email:</strong> ${result.email}</p>
-          <p><strong>Telefoon:</strong> ${result.phone ?? 'Niet opgegeven'}</p>
-          <p><strong>Bedrijfsnaam:</strong> ${result.company_name ?? 'Niet opgegeven'}</p>
-          <p><strong>Dienst:</strong> ${result.service_type ?? 'Niet opgegeven'}</p>
-          <p><strong>Bericht:</strong></p>
-          <p>${result.message ?? 'Geen bericht'}</p>
-        `,
-        text_body: `Naam: ${result.name}\nEmail: ${result.email}\nTelefoon: ${result.phone ?? 'N/A'}\nBedrijfsnaam: ${result.company_name ?? 'N/A'}\nDienst: ${result.service_type ?? 'N/A'}\nBericht: ${result.message ?? 'N/A'}`,
-      });
-    } catch (error) {
-      strapi.log.error('Intake submission email failed:', { submissionId: result.id, error: error.message });
-      // Email is critical — rethrow so Strapi logs the lifecycle error
-      // The submission is already saved to DB at this point (afterCreate)
-      throw error;
-    }
-
-    // 2. Dispatch webhook for automation tools (non-critical — logs but does not throw)
-    try {
-      await strapi.service('api::services.webhook').dispatchWebhook({
-        event: 'intake_submission.created',
-        timestamp: new Date().toISOString(),
-        data: {
-          id: result.id,
-          name: result.name,
-          email: result.email,
-          phone: result.phone,
-          company_name: result.company_name,
-          service_type: result.service_type,
-          message: result.message,
-          createdAt: result.createdAt,
-        },
-      });
-    } catch (error) {
-      strapi.log.error('Intake submission webhook failed:', { submissionId: result.id, error: error.message });
-      // Webhook is non-critical — swallow error, submission is already saved
-    }
+    await handleSubmissionCreated({
+      result,
+      buildEmail: buildIntakeEmail,
+      webhookEvent: 'intake_submission.created',
+      buildWebhookData: (r) => ({
+        id: r.id,
+        name: r.name,
+        email: r.email,
+        phone: r.phone,
+        company_name: r.company_name,
+        service_type: r.service_type,
+        message: r.message,
+        createdAt: r.createdAt,
+      }),
+    });
   },
 };
 ```
@@ -1683,35 +2376,41 @@ After deployment:
 
 | Step | Description | Depends On |
 |------|------------|------------|
-| 1 | Initialize monorepo + gitignore + workspace config | — |
-| 2 | Scaffold Strapi backend with TypeScript | Step 1 |
+| 1 | Initialize monorepo + gitignore + workspace config + ESLint + Prettier | — |
+| 2 | Scaffold Strapi backend with TypeScript (strict `tsconfig.json`) | Step 1 |
 | 3 | Configure Strapi: PostgreSQL, i18n, Cloudinary (cloudinary.com) | Step 2 |
 | 4 | Create all Strapi content types + SEO component | Step 3 |
 | 5 | Set API permissions for public access | Step 4 |
-| 6 | Scaffold Astro frontend with SSR + Tailwind | Step 1 |
-| 7 | Build Strapi API client (with `StrapiError` class + error handling) + i18n (with locale validation + fallback) + SEO utils | Step 6 |
-| 8 | Build layout (Header, Footer, BaseLayout) with meta tags + hreflang | Step 7 |
-| 9 | Build Homepage with structured data (JSON-LD) | Step 8 |
-| 10 | Build dynamic page template ([slug]) with SEO component rendering | Step 8 |
-| 11 | Build blog listing + detail pages with BlogPosting schema | Step 8 |
-| 12 | Build contact form + intake form with client-side validation, error display, and thank-you pages | Step 8 |
-| 13 | Build SMTP2GO email service with network + API error handling (`apps/backend/src/services/smtp2go.ts`) | Step 4 |
-| 14 | Build webhook dispatcher service with timeout + non-blocking error handling (`apps/backend/src/services/webhook.ts`) | Step 4 |
-| 15 | Add lifecycle hooks on Contact Submission + Intake Submission (try/catch: email critical, webhook non-critical) | Steps 13, 14 |
-| 16 | **Add environment variable validation** in Strapi bootstrap (fail on missing critical vars, warn on optional) | Step 3 |
-| 17 | **Add SSR error pages** (404, 500) and Strapi-unavailable handling (502) in Astro frontend | Step 10 |
-| 18 | **Write backend unit tests** (SMTP2GO service, webhook dispatcher, lifecycle hooks — including error paths) | Steps 13-16 |
-| 19 | **Write backend integration tests** (API endpoints with test DB + Supertest — including validation error responses) | Steps 5, 18 |
-| 20 | **Write backend functional tests** (form → DB, form → email, form → webhook — including failure scenarios) | Step 19 |
-| 21 | **Write frontend unit tests** (Strapi client error handling, i18n fallbacks, SEO helpers, JSON-LD) | Steps 7, 12 |
-| 22 | **Write E2E tests** (Playwright: forms with error states, i18n, SEO, blog, navigation, 404 page) | Steps 12, 17, 19 |
-| 23 | **Set up CI pipeline** (GitHub Actions: lint, unit, integration, functional, E2E) | Step 22 |
-| 24 | Add sitemap.xml + robots.txt + canonical URLs | Steps 9-12 |
-| 25 | Implement GTM, GA4, cookie consent + conversion tracking | Steps 9-12 |
-| 26 | Add Railway deployment configs (incl. SMTP2GO + webhook env vars) | Steps 5, 25 |
-| 27 | Lighthouse audit + Core Web Vitals optimization | Step 26 |
-| 28 | **Run full test suite — all tests must pass before deploy** | Steps 18-23 |
-| 29 | Deploy to Railway | Steps 26, 27, 28 |
-| 30 | Configure Google Ads conversion tracking via GTM | Step 29 |
-| 31 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 29 |
-| 32 | Migrate content in Strapi admin (with SEO fields filled) | Step 29 |
+| 6 | Scaffold Astro frontend with SSR + Tailwind (strict `tsconfig.json`) | Step 1 |
+| 7 | **Build shared backend types** (`src/types/index.ts`: `ContactSubmission`, `IntakeSubmission`, `EmailContent`) | Step 4 |
+| 8 | **Build shared frontend types** (`src/types/strapi.ts`: `StrapiCollectionResponse`, `PageAttributes`, `SEOComponent`, etc.) | Step 6 |
+| 9 | Build Strapi API client (with `StrapiError` class + JSDoc) + i18n (with locale validation + fallback) + SEO utils | Step 8 |
+| 10 | **Build Cloudinary URL builder** (`src/lib/cloudinary.ts`: `cloudinaryUrl`, `cloudinarySrcset`) | Step 6 |
+| 11 | Build layout (Header, Footer, BaseLayout) with meta tags + hreflang | Steps 9, 10 |
+| 12 | Build Homepage with structured data (JSON-LD) | Step 11 |
+| 13 | Build dynamic page template ([slug]) with SEO component rendering | Step 11 |
+| 14 | Build blog listing + detail pages with BlogPosting schema | Step 11 |
+| 15 | **Build reusable form handler** (`src/lib/form-handler.ts`: `initFormHandler`) | Step 9 |
+| 16 | Build contact form + intake form using shared form handler, with thank-you pages | Steps 11, 15 |
+| 17 | Build SMTP2GO email service with JSDoc + network + API error handling | Step 7 |
+| 18 | Build webhook dispatcher service with JSDoc + timeout + non-blocking error handling | Step 7 |
+| 19 | **Build email template builder** (`email-templates.ts`: `buildContactEmail`, `buildIntakeEmail`) | Step 7 |
+| 20 | **Build shared submission handler** (`submission-handler.ts`: `handleSubmissionCreated`) | Steps 17, 18, 19 |
+| 21 | Add lifecycle hooks on Contact + Intake Submission (delegates to shared handler) | Step 20 |
+| 22 | **Add environment variable validation** (`src/utils/env.ts` + Strapi bootstrap) | Step 3 |
+| 23 | **Add SSR error pages** (404, 500) and Strapi-unavailable handling (502) | Step 13 |
+| 24 | **Write backend unit tests** (SMTP2GO, webhook, email templates, submission handler, lifecycle hooks — including error paths) | Steps 17-22 |
+| 25 | **Write backend integration tests** (API endpoints with test DB + Supertest — including validation error responses) | Steps 5, 24 |
+| 26 | **Write backend functional tests** (form → DB, form → email, form → webhook — including failure scenarios) | Step 25 |
+| 27 | **Write frontend unit tests** (Strapi client error handling, i18n fallbacks, SEO helpers, JSON-LD, Cloudinary URL builder, form handler) | Steps 9, 15, 16 |
+| 28 | **Write E2E tests** (Playwright: forms with error states, i18n, SEO, blog, navigation, 404 page) | Steps 16, 23, 25 |
+| 29 | **Set up CI pipeline** (GitHub Actions: lint, format check, unit, integration, functional, E2E) | Step 28 |
+| 30 | Add sitemap.xml + robots.txt + canonical URLs | Steps 12-14 |
+| 31 | Implement GTM, GA4, cookie consent + conversion tracking | Steps 12-14 |
+| 32 | Add Railway deployment configs (incl. SMTP2GO + webhook env vars) | Steps 5, 31 |
+| 33 | Lighthouse audit + Core Web Vitals optimization | Step 32 |
+| 34 | **Run full test suite — all tests must pass before deploy** | Steps 24-29 |
+| 35 | Deploy to Railway | Steps 32, 33, 34 |
+| 36 | Configure Google Ads conversion tracking via GTM | Step 35 |
+| 37 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 35 |
+| 38 | Migrate content in Strapi admin (with SEO fields filled) | Step 35 |
