@@ -524,35 +524,47 @@ export default {
   async afterCreate(event) {
     const { result } = event;
 
-    // 1. Send email notification via SMTP2GO
-    await strapi.service('api::services.smtp2go').sendEmail({
-      to: [process.env.ADMIN_NOTIFICATION_EMAIL],
-      sender: process.env.SMTP2GO_SENDER_EMAIL,
-      subject: `Nieuw contactformulier: ${result.name}`,
-      html_body: `
-        <h2>Nieuw contactformulier ontvangen</h2>
-        <p><strong>Naam:</strong> ${result.name}</p>
-        <p><strong>Email:</strong> ${result.email}</p>
-        <p><strong>Telefoon:</strong> ${result.phone ?? 'Niet opgegeven'}</p>
-        <p><strong>Bericht:</strong></p>
-        <p>${result.message}</p>
-      `,
-      text_body: `Naam: ${result.name}\nEmail: ${result.email}\nTelefoon: ${result.phone ?? 'N/A'}\nBericht: ${result.message}`,
-    });
+    // 1. Send email notification via SMTP2GO (critical — throws on failure)
+    try {
+      await strapi.service('api::services.smtp2go').sendEmail({
+        to: [process.env.ADMIN_NOTIFICATION_EMAIL],
+        sender: process.env.SMTP2GO_SENDER_EMAIL,
+        subject: `Nieuw contactformulier: ${result.name}`,
+        html_body: `
+          <h2>Nieuw contactformulier ontvangen</h2>
+          <p><strong>Naam:</strong> ${result.name}</p>
+          <p><strong>Email:</strong> ${result.email}</p>
+          <p><strong>Telefoon:</strong> ${result.phone ?? 'Niet opgegeven'}</p>
+          <p><strong>Bericht:</strong></p>
+          <p>${result.message}</p>
+        `,
+        text_body: `Naam: ${result.name}\nEmail: ${result.email}\nTelefoon: ${result.phone ?? 'N/A'}\nBericht: ${result.message}`,
+      });
+    } catch (error) {
+      strapi.log.error('Contact submission email failed:', { submissionId: result.id, error: error.message });
+      // Email is critical — rethrow so Strapi logs the lifecycle error
+      // The submission is already saved to DB at this point (afterCreate)
+      throw error;
+    }
 
-    // 2. Dispatch webhook for automation tools
-    await strapi.service('api::services.webhook').dispatchWebhook({
-      event: 'contact_submission.created',
-      timestamp: new Date().toISOString(),
-      data: {
-        id: result.id,
-        name: result.name,
-        email: result.email,
-        phone: result.phone,
-        message: result.message,
-        createdAt: result.createdAt,
-      },
-    });
+    // 2. Dispatch webhook for automation tools (non-critical — logs but does not throw)
+    try {
+      await strapi.service('api::services.webhook').dispatchWebhook({
+        event: 'contact_submission.created',
+        timestamp: new Date().toISOString(),
+        data: {
+          id: result.id,
+          name: result.name,
+          email: result.email,
+          phone: result.phone,
+          message: result.message,
+          createdAt: result.createdAt,
+        },
+      });
+    } catch (error) {
+      strapi.log.error('Contact submission webhook failed:', { submissionId: result.id, error: error.message });
+      // Webhook is non-critical — swallow error, submission is already saved
+    }
   },
 };
 ```
@@ -564,48 +576,435 @@ export default {
   async afterCreate(event) {
     const { result } = event;
 
-    // 1. Send email notification via SMTP2GO
-    await strapi.service('api::services.smtp2go').sendEmail({
-      to: [process.env.ADMIN_NOTIFICATION_EMAIL],
-      sender: process.env.SMTP2GO_SENDER_EMAIL,
-      subject: `Nieuwe intake aanvraag: ${result.name} — ${result.service_type}`,
-      html_body: `
-        <h2>Nieuwe intake aanvraag ontvangen</h2>
-        <p><strong>Naam:</strong> ${result.name}</p>
-        <p><strong>Email:</strong> ${result.email}</p>
-        <p><strong>Telefoon:</strong> ${result.phone ?? 'Niet opgegeven'}</p>
-        <p><strong>Bedrijfsnaam:</strong> ${result.company_name ?? 'Niet opgegeven'}</p>
-        <p><strong>Dienst:</strong> ${result.service_type ?? 'Niet opgegeven'}</p>
-        <p><strong>Bericht:</strong></p>
-        <p>${result.message ?? 'Geen bericht'}</p>
-      `,
-      text_body: `Naam: ${result.name}\nEmail: ${result.email}\nTelefoon: ${result.phone ?? 'N/A'}\nBedrijfsnaam: ${result.company_name ?? 'N/A'}\nDienst: ${result.service_type ?? 'N/A'}\nBericht: ${result.message ?? 'N/A'}`,
-    });
+    // 1. Send email notification via SMTP2GO (critical — throws on failure)
+    try {
+      await strapi.service('api::services.smtp2go').sendEmail({
+        to: [process.env.ADMIN_NOTIFICATION_EMAIL],
+        sender: process.env.SMTP2GO_SENDER_EMAIL,
+        subject: `Nieuwe intake aanvraag: ${result.name} — ${result.service_type}`,
+        html_body: `
+          <h2>Nieuwe intake aanvraag ontvangen</h2>
+          <p><strong>Naam:</strong> ${result.name}</p>
+          <p><strong>Email:</strong> ${result.email}</p>
+          <p><strong>Telefoon:</strong> ${result.phone ?? 'Niet opgegeven'}</p>
+          <p><strong>Bedrijfsnaam:</strong> ${result.company_name ?? 'Niet opgegeven'}</p>
+          <p><strong>Dienst:</strong> ${result.service_type ?? 'Niet opgegeven'}</p>
+          <p><strong>Bericht:</strong></p>
+          <p>${result.message ?? 'Geen bericht'}</p>
+        `,
+        text_body: `Naam: ${result.name}\nEmail: ${result.email}\nTelefoon: ${result.phone ?? 'N/A'}\nBedrijfsnaam: ${result.company_name ?? 'N/A'}\nDienst: ${result.service_type ?? 'N/A'}\nBericht: ${result.message ?? 'N/A'}`,
+      });
+    } catch (error) {
+      strapi.log.error('Intake submission email failed:', { submissionId: result.id, error: error.message });
+      // Email is critical — rethrow so Strapi logs the lifecycle error
+      // The submission is already saved to DB at this point (afterCreate)
+      throw error;
+    }
 
-    // 2. Dispatch webhook for automation tools
-    await strapi.service('api::services.webhook').dispatchWebhook({
-      event: 'intake_submission.created',
-      timestamp: new Date().toISOString(),
-      data: {
-        id: result.id,
-        name: result.name,
-        email: result.email,
-        phone: result.phone,
-        company_name: result.company_name,
-        service_type: result.service_type,
-        message: result.message,
-        createdAt: result.createdAt,
-      },
-    });
+    // 2. Dispatch webhook for automation tools (non-critical — logs but does not throw)
+    try {
+      await strapi.service('api::services.webhook').dispatchWebhook({
+        event: 'intake_submission.created',
+        timestamp: new Date().toISOString(),
+        data: {
+          id: result.id,
+          name: result.name,
+          email: result.email,
+          phone: result.phone,
+          company_name: result.company_name,
+          service_type: result.service_type,
+          message: result.message,
+          createdAt: result.createdAt,
+        },
+      });
+    } catch (error) {
+      strapi.log.error('Intake submission webhook failed:', { submissionId: result.id, error: error.message });
+      // Webhook is non-critical — swallow error, submission is already saved
+    }
   },
 };
 ```
 
 ---
 
-## Phase 5: Testing — Code, Integration & Functional
+## Phase 5: Error Handling
 
-### 5.1 Testing Stack
+### 5.1 Error Handling Strategy
+
+All errors fall into two categories based on their impact on the user experience:
+
+| Category | Behavior | Examples |
+|----------|----------|---------|
+| **Critical** | Throw error, propagate to caller, log with `strapi.log.error` | SMTP2GO email failure, Strapi API fetch failure, missing required env vars |
+| **Non-critical** | Catch error, log with `strapi.log.error` or `strapi.log.warn`, continue execution | Webhook dispatch failure, analytics tracking failure, optional field missing |
+
+**Key principle**: Form submissions must always be saved to the database. Side effects (email, webhooks) that fail after the database write must not cause the API response to fail for non-critical operations.
+
+### 5.2 Backend Error Handling
+
+#### Environment Variable Validation
+
+Validate required environment variables at Strapi bootstrap time. Missing critical variables should prevent the application from starting.
+
+```typescript
+// apps/backend/src/index.ts — Strapi bootstrap lifecycle
+export default {
+  async bootstrap({ strapi }) {
+    const required = [
+      'DATABASE_URL',
+      'SMTP2GO_API_KEY',
+      'SMTP2GO_SENDER_EMAIL',
+      'ADMIN_NOTIFICATION_EMAIL',
+    ];
+
+    const missing = required.filter((key) => !process.env[key]);
+    if (missing.length > 0) {
+      strapi.log.error(`Missing required environment variables: ${missing.join(', ')}`);
+      throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+    }
+
+    // Optional variables — log a warning but do not block startup
+    if (!process.env.WEBHOOK_URL) {
+      strapi.log.warn('WEBHOOK_URL not configured — webhook dispatching is disabled');
+    }
+    if (!process.env.CLOUDINARY_NAME) {
+      strapi.log.warn('Cloudinary not configured — media uploads will use local storage');
+    }
+  },
+};
+```
+
+#### SMTP2GO Service Error Handling
+
+The SMTP2GO email service is critical — failures must propagate so lifecycle hooks can decide how to handle them.
+
+```typescript
+// apps/backend/src/services/smtp2go.ts — error handling additions
+
+async function sendEmail(payload: Omit<SMTP2GOPayload, 'api_key'>): Promise<void> {
+  if (!process.env.SMTP2GO_API_KEY) {
+    throw new Error('SMTP2GO_API_KEY is not configured');
+  }
+
+  let response: Response;
+  try {
+    response = await fetch('https://api.smtp2go.com/v3/email/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: process.env.SMTP2GO_API_KEY,
+        ...payload,
+      }),
+    });
+  } catch (error) {
+    // Network-level failure (DNS, timeout, connection refused)
+    strapi.log.error('SMTP2GO network error:', { error: error.message });
+    throw new Error(`SMTP2GO network error: ${error.message}`);
+  }
+
+  if (!response.ok) {
+    let errorDetail = 'Unknown error';
+    try {
+      const errorBody = await response.json();
+      errorDetail = errorBody.data?.error ?? errorBody.data?.error_code ?? JSON.stringify(errorBody);
+    } catch {
+      errorDetail = `HTTP ${response.status} ${response.statusText}`;
+    }
+    strapi.log.error('SMTP2GO API error:', { status: response.status, error: errorDetail });
+    throw new Error(`SMTP2GO error (${response.status}): ${errorDetail}`);
+  }
+}
+```
+
+#### Webhook Dispatcher Error Handling
+
+The webhook service is non-critical — it must never throw. All errors are logged and swallowed.
+
+```typescript
+// apps/backend/src/services/webhook.ts — error handling additions
+
+async function dispatchWebhook(payload: WebhookPayload): Promise<void> {
+  const webhookUrl = process.env.WEBHOOK_URL;
+  if (!webhookUrl) {
+    strapi.log.warn('WEBHOOK_URL not configured, skipping webhook dispatch');
+    return;
+  }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000); // 10s timeout
+
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Secret': process.env.WEBHOOK_SECRET ?? '',
+        'X-Webhook-Event': payload.event,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!response.ok) {
+      strapi.log.error('Webhook dispatch failed:', {
+        status: response.status,
+        event: payload.event,
+        url: webhookUrl,
+      });
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      strapi.log.error('Webhook dispatch timed out after 10s:', {
+        event: payload.event,
+        url: webhookUrl,
+      });
+    } else {
+      strapi.log.error('Webhook dispatch network error:', {
+        event: payload.event,
+        error: error.message,
+      });
+    }
+    // Non-critical — do not rethrow
+  }
+}
+```
+
+#### Lifecycle Hook Error Handling Summary
+
+| Hook | Email failure | Webhook failure |
+|------|--------------|-----------------|
+| `contact-submission.afterCreate` | Log + rethrow (critical) | Log + swallow (non-critical) |
+| `intake-submission.afterCreate` | Log + rethrow (critical) | Log + swallow (non-critical) |
+
+**Important**: Because lifecycle hooks run in `afterCreate`, the database record is already persisted when the hook fires. An email failure will cause Strapi to log a lifecycle error, but the submission data is safe in PostgreSQL and visible in the admin panel.
+
+### 5.3 Frontend Error Handling
+
+#### Strapi API Client (`src/lib/strapi.ts`)
+
+The API client must handle network failures, non-200 responses, and malformed data gracefully.
+
+```typescript
+// apps/frontend/src/lib/strapi.ts — error handling
+
+class StrapiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = 'StrapiError';
+  }
+}
+
+async function fetchAPI<T>(endpoint: string, params?: Record<string, string>): Promise<T> {
+  const url = new URL(endpoint, import.meta.env.STRAPI_URL);
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${import.meta.env.STRAPI_API_TOKEN}`,
+      },
+    });
+  } catch (error) {
+    // Network failure — Strapi is unreachable
+    throw new StrapiError(
+      `Failed to connect to Strapi: ${error.message}`,
+      0
+    );
+  }
+
+  if (!response.ok) {
+    let details: unknown;
+    try {
+      details = await response.json();
+    } catch {
+      details = await response.text();
+    }
+    throw new StrapiError(
+      `Strapi API error: ${response.status} ${response.statusText}`,
+      response.status,
+      details
+    );
+  }
+
+  return response.json() as Promise<T>;
+}
+```
+
+#### Form Submission Error Handling
+
+Client-side forms must provide clear user feedback for validation errors, network failures, and server errors.
+
+```typescript
+// Client-side form submission pattern (used in ContactForm.astro and IntakeForm.astro)
+
+async function handleSubmit(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  const form = event.target as HTMLFormElement;
+  const submitButton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+  const errorContainer = form.querySelector('[data-form-error]') as HTMLElement;
+
+  // Clear previous errors
+  errorContainer.textContent = '';
+  errorContainer.hidden = true;
+
+  // Client-side validation
+  if (!form.checkValidity()) {
+    form.reportValidity();
+    return;
+  }
+
+  // Disable button during submission to prevent double-submit
+  submitButton.disabled = true;
+  submitButton.textContent = 'Verzenden...';
+
+  try {
+    const response = await fetch(`${PUBLIC_STRAPI_URL}/api/contact-submissions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: Object.fromEntries(new FormData(form)) }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      if (response.status === 400) {
+        // Validation error from Strapi — show field-level errors
+        const message = error?.error?.message ?? 'Controleer de ingevulde gegevens.';
+        throw new Error(message);
+      }
+      throw new Error('Er is iets misgegaan. Probeer het later opnieuw.');
+    }
+
+    // Success — redirect to thank-you page
+    const lang = window.location.pathname.split('/')[1]; // 'nl' or 'en'
+    window.location.href = `/${lang}/bedankt`;
+  } catch (error) {
+    errorContainer.textContent = error.message;
+    errorContainer.hidden = false;
+    submitButton.disabled = false;
+    submitButton.textContent = 'Versturen';
+  }
+}
+```
+
+**User-facing error messages** (localized):
+
+| Scenario | Dutch (nl) | English (en) |
+|----------|-----------|--------------|
+| Validation error | Controleer de ingevulde gegevens. | Please check the entered data. |
+| Network failure | Kan geen verbinding maken. Controleer uw internetverbinding. | Unable to connect. Check your internet connection. |
+| Server error (5xx) | Er is iets misgegaan. Probeer het later opnieuw. | Something went wrong. Please try again later. |
+| Rate limited (429) | Te veel verzoeken. Probeer het over een minuut opnieuw. | Too many requests. Please try again in a minute. |
+
+#### SSR Error Pages
+
+Astro SSR pages must handle scenarios where Strapi is unavailable or returns errors.
+
+```typescript
+// Pattern for SSR page data fetching (e.g., [slug].astro)
+
+let page;
+try {
+  page = await fetchAPI(`/api/pages`, {
+    'filters[slug][$eq]': slug,
+    locale: lang,
+    populate: 'seo,hero_image',
+  });
+} catch (error) {
+  if (error instanceof StrapiError && error.status === 404) {
+    return Astro.redirect('/404');
+  }
+  // Log the error server-side, show a generic error page
+  console.error(`Failed to load page "${slug}":`, error.message);
+  return new Response('Er is een fout opgetreden. Probeer het later opnieuw.', {
+    status: 502,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+  });
+}
+```
+
+**Custom error pages to implement:**
+
+| Status | Route | Purpose |
+|--------|-------|---------|
+| 404 | `pages/404.astro` | Page not found — CMS page doesn't exist or invalid route |
+| 500 | `pages/500.astro` | Internal server error — unhandled exception in SSR |
+| 502 | Inline response | Bad gateway — Strapi API is unreachable |
+
+#### i18n Error Handling
+
+```typescript
+// apps/frontend/src/lib/i18n.ts — locale validation
+
+const SUPPORTED_LOCALES = ['nl', 'en'] as const;
+type Locale = (typeof SUPPORTED_LOCALES)[number];
+const DEFAULT_LOCALE: Locale = 'nl';
+
+function validateLocale(lang: string): Locale {
+  if (SUPPORTED_LOCALES.includes(lang as Locale)) {
+    return lang as Locale;
+  }
+  // Invalid locale — fall back to default rather than throwing
+  return DEFAULT_LOCALE;
+}
+
+function t(key: string, locale: Locale): string {
+  const translation = translations[locale]?.[key];
+  if (!translation) {
+    // Missing translation — fall back to Dutch, then to the key itself
+    return translations[DEFAULT_LOCALE]?.[key] ?? key;
+  }
+  return translation;
+}
+```
+
+### 5.4 Error Criticality Matrix
+
+| Component | Error Scenario | Severity | Behavior |
+|-----------|---------------|----------|----------|
+| Strapi bootstrap | Missing required env var | **Fatal** | Throw, prevent startup |
+| Strapi bootstrap | Missing optional env var | Warning | Log warning, continue |
+| SMTP2GO service | Network failure / API error | **Critical** | Throw, caller decides |
+| Webhook service | Network failure / API error / timeout | Non-critical | Log error, return silently |
+| Lifecycle hook | Email send failure | **Critical** | Log + rethrow |
+| Lifecycle hook | Webhook dispatch failure | Non-critical | Log + swallow |
+| Frontend API client | Strapi unreachable | **Critical** | Throw `StrapiError`, SSR returns 502 |
+| Frontend API client | Strapi returns 404 | Normal | Redirect to 404 page |
+| Frontend API client | Strapi returns 400/500 | **Critical** | Throw `StrapiError`, SSR returns error page |
+| Frontend form | Network failure | User-facing | Show localized error message |
+| Frontend form | Validation error (400) | User-facing | Show field-level error messages |
+| Frontend form | Server error (5xx) | User-facing | Show generic retry message |
+| i18n | Invalid locale in URL | Non-critical | Fall back to `nl` default |
+| i18n | Missing translation key | Non-critical | Fall back to Dutch, then to raw key |
+
+### 5.5 Logging Strategy
+
+All backend logging uses Strapi's built-in logger (`strapi.log`) with appropriate log levels:
+
+| Level | Usage | Example |
+|-------|-------|---------|
+| `strapi.log.error` | Operation failed, needs attention | Email send failure, webhook timeout |
+| `strapi.log.warn` | Degraded but functional | Missing optional env var, webhook URL not configured |
+| `strapi.log.info` | Normal operational events | Strapi started, content type created |
+| `strapi.log.debug` | Development diagnostics | API request details, payload contents |
+
+**Structured log fields**: All error logs include contextual data (submission ID, event type, error message) as a second argument for structured logging and easier debugging.
+
+**Frontend logging**: SSR errors are logged via `console.error` on the server. Client-side errors in form handlers are displayed to the user — no client-side logging to external services in the initial implementation.
+
+---
+
+## Phase 6: Testing — Code, Integration & Functional
+
+### 6.1 Testing Stack
 
 | Tool | Purpose | Scope |
 |------|---------|-------|
@@ -615,7 +1014,7 @@ export default {
 | MSW (Mock Service Worker) | API mocking | Frontend tests (mock Strapi responses) |
 | GitHub Actions | CI pipeline | Automated testing on push/PR |
 
-### 5.2 Code / Unit Tests
+### 6.2 Code / Unit Tests
 
 Isolated tests for individual functions, utilities, and services. No external dependencies — all I/O is mocked.
 
@@ -704,7 +1103,7 @@ describe('SMTP2GO Service', () => {
 - Generates correct canonical URL
 - Generates correct hreflang alternate links
 
-### 5.3 Integration Tests
+### 6.3 Integration Tests
 
 Tests that verify multiple components working together with real (test) database and mocked external services.
 
@@ -783,7 +1182,7 @@ describe('POST /api/contact-submissions', () => {
 - `GET /api/global-settings` returns site configuration
 - Verifies public role cannot create/update/delete read-only content types
 
-### 5.4 Functional Tests
+### 6.4 Functional Tests
 
 End-to-end tests that verify complete user workflows from form submission through to database persistence, email dispatch, and webhook delivery.
 
@@ -829,7 +1228,7 @@ describe('Form submission → Database storage', () => {
 - Verifies `X-Webhook-Secret` header is present
 - Verifies webhook failure does not break form submission (non-blocking)
 
-### 5.5 E2E Tests (Playwright)
+### 6.5 E2E Tests (Playwright)
 
 Browser-based tests that verify the full user experience across Chrome, Firefox, and Safari.
 
@@ -936,7 +1335,7 @@ test.describe('Contact Form', () => {
 - Category filter works
 - Pagination works
 
-### 5.6 CI Pipeline (GitHub Actions)
+### 6.6 CI Pipeline (GitHub Actions)
 
 ```yaml
 # .github/workflows/ci.yml
@@ -1059,7 +1458,7 @@ jobs:
           path: apps/frontend/playwright-report/
 ```
 
-### 5.7 npm Scripts (per package)
+### 6.7 npm Scripts (per package)
 
 **Backend (`apps/backend/package.json`):**
 ```json
@@ -1100,9 +1499,9 @@ jobs:
 
 ---
 
-## Phase 6: Railway Deployment
+## Phase 7: Railway Deployment
 
-### 5.1 Railway Services
+### 7.1 Railway Services
 
 | Service | Type | Build Command | Start Command |
 |---------|------|---------------|---------------|
@@ -1110,7 +1509,7 @@ jobs:
 | frontend | Node.js | `pnpm --filter frontend build` | `node apps/frontend/dist/server/entry.mjs` |
 | database | PostgreSQL | — (managed) | — |
 
-### 5.2 Environment Variables
+### 7.2 Environment Variables
 
 **Backend (Strapi):**
 ```
@@ -1148,15 +1547,15 @@ STRAPI_API_TOKEN=<generated in Strapi admin>
 PUBLIC_STRAPI_URL=https://api.ostrea.uk  (for client-side requests)
 ```
 
-### 5.3 Custom Domains (optional)
+### 7.3 Custom Domains (optional)
 - Frontend: `ostrea.uk` / `www.ostrea.uk`
 - Backend: `api.ostrea.uk` (or keep Railway URL for admin)
 
 ---
 
-## Phase 7: SEO Optimization (Search Engine Optimization)
+## Phase 8: SEO Optimization (Search Engine Optimization)
 
-### 6.1 Technical SEO
+### 8.1 Technical SEO
 
 - **Semantic HTML**: Use proper heading hierarchy (single `<h1>` per page, logical `<h2>`-`<h6>`)
 - **Performance**: Target Lighthouse score 90+ on all Core Web Vitals (LCP, FID, CLS)
@@ -1172,7 +1571,7 @@ PUBLIC_STRAPI_URL=https://api.ostrea.uk  (for client-side requests)
 - **Mobile-friendly**: Responsive design with proper `<meta name="viewport">` tag
 - **Clean URL structure**: `/nl/bedrijfsjuristen`, `/en/business-lawyers` — no trailing slashes, no query params
 
-### 6.2 On-Page SEO (CMS-Driven)
+### 8.2 On-Page SEO (CMS-Driven)
 
 Every page and blog post gets these editable SEO fields (via the shared SEO component in Strapi):
 
@@ -1183,7 +1582,7 @@ Every page and blog post gets these editable SEO fields (via the shared SEO comp
 - **Focus keyword**: Editorial field in CMS to guide content writers (not rendered)
 - **No-index control**: Per-page toggle to exclude from search engines
 
-### 6.3 Structured Data (JSON-LD)
+### 8.3 Structured Data (JSON-LD)
 
 Implement JSON-LD structured data on every page, with type driven by the CMS `structured_data_type` field:
 
@@ -1195,7 +1594,7 @@ Implement JSON-LD structured data on every page, with type driven by the CMS `st
 | Blog posts | `BlogPosting` | Title, author, date, image, description |
 | Contact page | `ContactPoint` | Phone, email, address |
 
-### 6.4 Blog SEO
+### 8.4 Blog SEO
 
 - **Clean URLs**: `/nl/blog/post-title-slug`
 - **Blog listing pagination**: With `rel="next"` / `rel="prev"` links
@@ -1203,7 +1602,7 @@ Implement JSON-LD structured data on every page, with type driven by the CMS `st
 - **Publish date**: Rendered in HTML and structured data for freshness signals
 - **Featured image alt text**: Editable in CMS, auto-required for accessibility + SEO
 
-### 6.5 Performance & Core Web Vitals
+### 8.5 Performance & Core Web Vitals
 
 | Metric | Target | Strategy |
 |--------|--------|----------|
@@ -1214,9 +1613,9 @@ Implement JSON-LD structured data on every page, with type driven by the CMS `st
 
 ---
 
-## Phase 8: SEA Readiness (Search Engine Advertising)
+## Phase 9: SEA Readiness (Search Engine Advertising)
 
-### 7.1 Tracking & Analytics Infrastructure
+### 9.1 Tracking & Analytics Infrastructure
 
 - **Google Tag Manager (GTM)**: Install GTM container in `BaseLayout.astro` (both `<head>` and `<body>` snippets)
   - CMS-editable GTM container ID in Global Settings
@@ -1229,7 +1628,7 @@ Implement JSON-LD structured data on every page, with type driven by the CMS `st
   - Store consent preference in cookie
   - Required for EU-based Dutch audience
 
-### 7.2 Conversion Tracking
+### 9.2 Conversion Tracking
 
 Set up conversion events for SEA campaign optimization:
 
@@ -1245,7 +1644,7 @@ Set up conversion events for SEA campaign optimization:
 - **Google Ads conversion tag**: Configured via GTM, fires on thank-you pages
 - **Enhanced conversions**: Pass hashed email to Google Ads for better attribution (GDPR-compliant)
 
-### 7.3 Landing Page Best Practices for SEA
+### 9.3 Landing Page Best Practices for SEA
 
 - **Fast load times**: Critical for Google Ads Quality Score (target < 3s on mobile)
 - **Clear CTA above the fold**: "NU OPRICHTEN" button visible without scrolling
@@ -1254,7 +1653,7 @@ Set up conversion events for SEA campaign optimization:
 - **UTM parameter support**: Ensure UTM params pass through cleanly (no stripping by redirects)
 - **Ad extensions data**: Structured data (phone, address, services) feeds Google Ads extensions
 
-### 7.4 Global Settings Additions for SEA
+### 9.4 Global Settings Additions for SEA
 
 Add to Global Settings single type in Strapi:
 
@@ -1267,7 +1666,7 @@ Add to Global Settings single type in Strapi:
 
 ---
 
-## Phase 9: Content Migration
+## Phase 10: Content Migration
 
 After deployment:
 1. Access Strapi admin panel
@@ -1290,27 +1689,29 @@ After deployment:
 | 4 | Create all Strapi content types + SEO component | Step 3 |
 | 5 | Set API permissions for public access | Step 4 |
 | 6 | Scaffold Astro frontend with SSR + Tailwind | Step 1 |
-| 7 | Build Strapi API client + i18n + SEO utils | Step 6 |
+| 7 | Build Strapi API client (with `StrapiError` class + error handling) + i18n (with locale validation + fallback) + SEO utils | Step 6 |
 | 8 | Build layout (Header, Footer, BaseLayout) with meta tags + hreflang | Step 7 |
 | 9 | Build Homepage with structured data (JSON-LD) | Step 8 |
 | 10 | Build dynamic page template ([slug]) with SEO component rendering | Step 8 |
 | 11 | Build blog listing + detail pages with BlogPosting schema | Step 8 |
-| 12 | Build contact form + intake form with thank-you pages | Step 8 |
-| 13 | Build SMTP2GO email service (`apps/backend/src/services/smtp2go.ts`) | Step 4 |
-| 14 | Build webhook dispatcher service (`apps/backend/src/services/webhook.ts`) | Step 4 |
-| 15 | Add lifecycle hooks on Contact Submission + Intake Submission (email + webhook) | Steps 13, 14 |
-| 16 | **Write backend unit tests** (SMTP2GO service, webhook dispatcher, lifecycle hooks) | Steps 13-15 |
-| 17 | **Write backend integration tests** (API endpoints with test DB + Supertest) | Steps 5, 16 |
-| 18 | **Write backend functional tests** (form → DB, form → email, form → webhook) | Step 17 |
-| 19 | **Write frontend unit tests** (Strapi client, i18n, SEO helpers, JSON-LD) | Steps 7, 12 |
-| 20 | **Write E2E tests** (Playwright: forms, i18n, SEO, blog, navigation) | Steps 12, 17 |
-| 21 | **Set up CI pipeline** (GitHub Actions: lint, unit, integration, functional, E2E) | Step 20 |
-| 22 | Add sitemap.xml + robots.txt + canonical URLs | Steps 9-12 |
-| 23 | Implement GTM, GA4, cookie consent + conversion tracking | Steps 9-12 |
-| 24 | Add Railway deployment configs (incl. SMTP2GO + webhook env vars) | Steps 5, 23 |
-| 25 | Lighthouse audit + Core Web Vitals optimization | Step 24 |
-| 26 | **Run full test suite — all tests must pass before deploy** | Steps 16-21 |
-| 27 | Deploy to Railway | Steps 24, 25, 26 |
-| 28 | Configure Google Ads conversion tracking via GTM | Step 27 |
-| 29 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 27 |
-| 30 | Migrate content in Strapi admin (with SEO fields filled) | Step 27 |
+| 12 | Build contact form + intake form with client-side validation, error display, and thank-you pages | Step 8 |
+| 13 | Build SMTP2GO email service with network + API error handling (`apps/backend/src/services/smtp2go.ts`) | Step 4 |
+| 14 | Build webhook dispatcher service with timeout + non-blocking error handling (`apps/backend/src/services/webhook.ts`) | Step 4 |
+| 15 | Add lifecycle hooks on Contact Submission + Intake Submission (try/catch: email critical, webhook non-critical) | Steps 13, 14 |
+| 16 | **Add environment variable validation** in Strapi bootstrap (fail on missing critical vars, warn on optional) | Step 3 |
+| 17 | **Add SSR error pages** (404, 500) and Strapi-unavailable handling (502) in Astro frontend | Step 10 |
+| 18 | **Write backend unit tests** (SMTP2GO service, webhook dispatcher, lifecycle hooks — including error paths) | Steps 13-16 |
+| 19 | **Write backend integration tests** (API endpoints with test DB + Supertest — including validation error responses) | Steps 5, 18 |
+| 20 | **Write backend functional tests** (form → DB, form → email, form → webhook — including failure scenarios) | Step 19 |
+| 21 | **Write frontend unit tests** (Strapi client error handling, i18n fallbacks, SEO helpers, JSON-LD) | Steps 7, 12 |
+| 22 | **Write E2E tests** (Playwright: forms with error states, i18n, SEO, blog, navigation, 404 page) | Steps 12, 17, 19 |
+| 23 | **Set up CI pipeline** (GitHub Actions: lint, unit, integration, functional, E2E) | Step 22 |
+| 24 | Add sitemap.xml + robots.txt + canonical URLs | Steps 9-12 |
+| 25 | Implement GTM, GA4, cookie consent + conversion tracking | Steps 9-12 |
+| 26 | Add Railway deployment configs (incl. SMTP2GO + webhook env vars) | Steps 5, 25 |
+| 27 | Lighthouse audit + Core Web Vitals optimization | Step 26 |
+| 28 | **Run full test suite — all tests must pass before deploy** | Steps 18-23 |
+| 29 | Deploy to Railway | Steps 26, 27, 28 |
+| 30 | Configure Google Ads conversion tracking via GTM | Step 29 |
+| 31 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 29 |
+| 32 | Migrate content in Strapi admin (with SEO fields filled) | Step 29 |
