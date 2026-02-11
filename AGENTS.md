@@ -445,22 +445,51 @@ Defined in `.github/workflows/ci.yml`. Triggers on push to `main` and `claude/*`
 
 ## Coding Conventions
 
+> **Comprehensive best practices are defined in `MIGRATION_PLAN.md` § Code Quality Standards.** This section summarizes the key conventions. When in doubt, defer to the migration plan.
+
 ### Language
 
 - **TypeScript** is the primary language for both frontend and backend
 - Strict type checking enabled via `tsconfig.json`
 - Type checking enforced in CI pipeline
 
-### File Naming
+### Naming Conventions
 
-- **Kebab-case** for all files: `contact-form.astro`, `smtp2go.ts`, `blog-post.test.ts`
-- **PascalCase** for Astro component files: `Header.astro`, `BaseLayout.astro`, `JsonLd.astro`
-- **Kebab-case** for Strapi content type directories: `contact-submission/`, `blog-post/`
+> Full rules: `MIGRATION_PLAN.md` § Naming Conventions
+
+| Element | Convention | Example |
+|---------|-----------|---------|
+| Files & directories | `kebab-case` | `form-handler.ts`, `blog-post/` |
+| Astro components | `PascalCase.astro` | `Header.astro`, `JsonLd.astro` |
+| Variables & functions | `camelCase` | `fetchAPI()`, `buildContactEmail()` |
+| Constants | `UPPER_SNAKE_CASE` | `SUPPORTED_LOCALES`, `WEBHOOK_TIMEOUT_MS` |
+| TypeScript interfaces/types | `PascalCase` (no `I` prefix) | `ContactSubmission`, `Locale` |
+| CSS classes (custom) | `kebab-case` | `text-brand-green`, `btn-primary` |
+| Environment variables | `UPPER_SNAKE_CASE` | `SMTP2GO_API_KEY`, `STRAPI_URL` |
+| URL slugs | `kebab-case`, lowercase | `/nl/blog/mijn-eerste-post` |
+
+- Booleans: prefix with `is`, `has`, `should`, `can`
+- Event handlers: prefix with `handle` or `on`
+- Builders/factories: prefix with `build` or `create`
+
+### Import Organization
+
+> Full rules: `MIGRATION_PLAN.md` § Import Organization
+
+Strict 4-group ordering with blank-line separators:
+1. Node.js built-in modules
+2. External packages (`node_modules`)
+3. Internal aliases / absolute imports
+4. Relative imports (siblings and children)
+
+- Use `import type { ... }` for type-only imports
+- No relative paths deeper than two levels (`../../..`) — use path aliases
+- Barrel exports (`index.ts`) only in `types/` directories
 
 ### Frontend Conventions
 
 - **Components**: Astro components (`.astro` files) for all UI
-- **Styling**: Tailwind CSS utility classes exclusively; global styles only in `styles/global.css`
+- **Styling**: Tailwind CSS utility classes exclusively; global styles only in `styles/global.css` (see CSS / Tailwind Conventions below)
 - **Zero JS by default**: Astro ships no client-side JavaScript unless explicitly opted in. Use `client:load` or `client:visible` directives only when interactivity is needed (forms, language switcher)
 - **i18n routing**: All pages under `[lang]/` dynamic route. Root `/` redirects to `/nl`
 - **Static UI strings**: Stored as TypeScript translation objects in `src/lib/i18n.ts`, not in CMS
@@ -474,6 +503,45 @@ Defined in `.github/workflows/ci.yml`. Triggers on push to `main` and `claude/*`
 - **Lifecycle hooks**: Use `afterCreate` for side effects (email, webhooks). Side effects must not block the API response for non-critical operations (webhooks log errors but don't throw)
 - **Services**: Reusable business logic in `src/services/`. Each service is a standalone module
 - **Configuration**: All config in `config/` directory (`database.ts`, `server.ts`, `admin.ts`, `middlewares.ts`, `plugins.ts`)
+
+### CSS / Tailwind Conventions
+
+> Full rules: `MIGRATION_PLAN.md` § CSS / Tailwind Conventions
+
+- **Utility-first** — use Tailwind classes directly in markup; avoid custom CSS unless necessary
+- **Class ordering**: Layout → Positioning → Sizing → Spacing → Typography → Visual → Interactive → Responsive (enforced by `prettier-plugin-tailwindcss`)
+- **Component extraction** over CSS classes — when 5+ utilities repeat in 3+ places, extract an Astro component
+- **No `@apply`** in most cases — only for base element styles in `global.css`
+- **Mobile-first**: base styles for mobile, `md:`, `lg:`, `xl:` for larger screens
+- **No inline `style` attributes**
+- **Brand tokens**: `brand-green` (#7AAC2D), `brand-green-dark` (#5C8A1E), `brand-brown` (#8B6914), `brand-gold` (#C9A84C) defined in `tailwind.config.mjs`
+
+### Constants & Configuration
+
+> Full rules: `MIGRATION_PLAN.md` § Constants & Configuration
+
+- No magic numbers or hardcoded strings — all configurable values in dedicated constant files
+- Backend constants: `apps/backend/src/constants.ts` (`WEBHOOK_TIMEOUT_MS`, `EMAIL_MAX_RETRIES`, `RATE_LIMIT_CONTACT`, `RATE_LIMIT_INTAKE`)
+- Frontend constants: `apps/frontend/src/constants.ts` (`BLOG_POSTS_PER_PAGE`, `BREAKPOINTS`, `IMAGE_WIDTHS`)
+- Configuration that varies per environment belongs in env vars, not constants
+
+### Async Patterns
+
+> Full rules: `MIGRATION_PLAN.md` § Async Patterns
+
+- **No floating promises** — every `async` call must be `await`ed or have an explicit `.catch()`
+- **`Promise.all()`** for independent parallel operations (reduces page load time)
+- **`Promise.allSettled()`** when some failures are acceptable
+- **Error boundaries** at every async boundary — unhandled rejections are never acceptable
+
+### Immutability
+
+> Full rules: `MIGRATION_PLAN.md` § Immutability & Functional Patterns
+
+- Prefer `const` over `let`; never use `var`
+- Don't mutate function arguments — return new objects/arrays
+- Use `readonly` for properties that shouldn't change after creation
+- Use `as const` for literal arrays/objects (`SUPPORTED_LOCALES`, etc.)
 
 ### Strapi Content Type API Permissions
 
@@ -631,6 +699,60 @@ Every page renders:
 - **SMTP2GO service**: Throws on send failure (email notification is considered critical)
 - **Webhook service**: Logs error but does NOT throw (webhook failure must not break form submission)
 - **Frontend forms**: Client-side validation before submission, server-side validation in Strapi schema
+
+> Full error handling strategy with custom error classes, retry logic, and criticality matrix: `MIGRATION_PLAN.md` § Phase 5: Error Handling
+
+### Security
+
+> Full rules: `MIGRATION_PLAN.md` § Security Best Practices
+
+- **Input sanitization**: Server-side validation mandatory — never trust client-side alone
+- **XSS prevention**: Astro auto-escapes templates; `set:html` only for trusted CMS rich text
+- **CSP headers**: Configured in middleware — `default-src 'self'`, whitelists for Cloudinary, GTM, Strapi
+- **Rate limiting**: Contact form 5/15min, intake form 3/15min per IP; returns `429` with localized message
+- **Secrets management**: All secrets in env vars, `.env` files gitignored, tokens rotated on schedule
+- **Dependency security**: `pnpm audit` in CI, no `*`/`latest` ranges, lock file always committed
+
+### Accessibility (a11y)
+
+> Full rules: `MIGRATION_PLAN.md` § Accessibility (a11y)
+
+Target: **WCAG 2.1 Level AA** (EU/Netherlands legal requirement).
+
+- **Semantic HTML**: `<nav>`, `<main>`, `<article>`, etc.; logical heading hierarchy; no `<div onclick>`
+- **Keyboard navigation**: All interactive elements reachable via Tab; visible focus indicators; skip-to-content link; Escape closes modals
+- **Forms**: Every input has a `<label>`; errors linked via `aria-describedby`; error summary with `role="alert"`
+- **Color contrast**: Normal text 4.5:1, large text 3:1; never color alone to convey information
+- **Images**: All `<img>` have `alt` text (from Strapi); decorative images use `alt=""`
+- **Testing**: Lighthouse a11y score 95+; `axe-core` in Playwright E2E; manual keyboard + screen reader testing
+
+### API Design
+
+> Full rules: `MIGRATION_PLAN.md` § API Design Conventions
+
+- JSON request/response bodies following Strapi envelope format (`{ data, meta }`)
+- Error responses: `{ error: { status, name, message, details } }`
+- Pagination: default 25, max 100, `page` + `pageSize` params
+- Filtering/sorting: Strapi conventions (`filters[field][$operator]`, `sort=field:asc`)
+- Standard HTTP status codes: 200, 201, 204, 400, 401, 403, 404, 429, 500
+
+### Dependency Management
+
+> Full rules: `MIGRATION_PLAN.md` § Dependency Management
+
+- **pnpm only** — enforced via `packageManager` field and `engines`
+- Caret `^` for app deps, exact versions for critical tooling (TypeScript, Strapi)
+- Lock file always committed, never manually edited
+- Before adding a package: Can Node.js stdlib do it? Is it already installed? Is it maintained, typed, < 50KB?
+- `pnpm audit` blocks merges on high/critical findings; `depcheck` for unused packages
+
+### Git Workflow
+
+> Full rules: `MIGRATION_PLAN.md` § Git Workflow & Commit Conventions
+
+- **Branch naming**: `feature/`, `fix/`, `chore/`, `docs/`, `refactor/`, `test/` prefixes
+- **Commit messages**: Conventional Commits format — `<type>(<scope>): <summary>`
+- **Code review**: All CI checks pass, at least one approval, no `console.log` in production, no untyped `any`, no `it.skip` without linked issue
 
 ---
 
