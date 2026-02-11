@@ -368,6 +368,511 @@ Extract shared logic into standalone modules to eliminate duplication and enable
 | Form submission handler | `src/lib/form-handler.ts` | ContactForm.astro, IntakeForm.astro | Shared validation, submit, loading state, and error display logic |
 | Cloudinary URL builder | `src/lib/cloudinary.ts` | Hero, BlogCard, SEOHead, all image components | Build optimized Cloudinary URLs with `f_auto`, `q_auto`, responsive sizing |
 
+### Naming Conventions
+
+Consistent naming across the entire codebase. No exceptions.
+
+| Element | Convention | Example |
+|---------|-----------|---------|
+| Files & directories | `kebab-case` | `form-handler.ts`, `email-templates.ts`, `blog-post/` |
+| Astro components | `PascalCase.astro` | `BlogCard.astro`, `LanguageSwitcher.astro` |
+| Variables & functions | `camelCase` | `fetchAPI()`, `buildContactEmail()`, `webhookUrl` |
+| Constants (true constants) | `UPPER_SNAKE_CASE` | `SUPPORTED_LOCALES`, `DEFAULT_LOCALE`, `MAX_WEBHOOK_TIMEOUT_MS` |
+| TypeScript interfaces | `PascalCase` (no `I` prefix) | `ContactSubmission`, `EmailContent`, `StrapiEntity<T>` |
+| TypeScript type aliases | `PascalCase` | `Locale`, `WebhookEvent` |
+| Enum members | `PascalCase` | `ServiceType.TrustFormation` |
+| CSS classes (Tailwind) | Utility-first, custom classes in `kebab-case` | `text-brand-green`, `btn-primary` |
+| Environment variables | `UPPER_SNAKE_CASE` | `SMTP2GO_API_KEY`, `STRAPI_URL` |
+| URL slugs | `kebab-case`, lowercase | `/nl/blog/mijn-eerste-post` |
+| Database fields | `snake_case` (Strapi convention) | `company_name`, `service_type`, `hero_image` |
+
+**Naming principles:**
+- Be descriptive over brief — `handleSubmissionCreated` over `handleSub`
+- Boolean variables/props start with `is`, `has`, `should`, `can` — `isLoading`, `hasError`, `shouldRedirect`
+- Event handler functions start with `handle` or `on` — `handleSubmit`, `onLocaleChange`
+- Builder/factory functions start with `build` or `create` — `buildContactEmail`, `createStrapiClient`
+- Avoid abbreviations unless universally understood — `i18n`, `URL`, `API` are fine; `btn`, `msg`, `cb` are not
+
+### Import Organization
+
+Every file follows a strict import ordering with blank-line separators between groups:
+
+```typescript
+// 1. Node.js built-in modules
+import { URL } from 'node:url';
+
+// 2. External packages (node_modules)
+import { describe, it, expect } from 'vitest';
+
+// 3. Internal aliases / absolute imports (within the same app)
+import type { ContactSubmission } from '../types';
+import { sendEmail } from '../services/smtp2go';
+
+// 4. Relative imports (siblings and children)
+import { renderHtml } from './helpers';
+```
+
+**Rules:**
+- Type-only imports use `import type { ... }` to avoid runtime overhead
+- Barrel exports (`index.ts`) only in `types/` directories — avoid re-export barrels elsewhere as they break tree-shaking
+- Prefer explicit named imports over wildcard `import * as` — easier to trace usage
+- Never use relative paths that go up more than two levels (`../../..`) — use path aliases if needed
+
+### Git Workflow & Commit Conventions
+
+#### Branch Naming
+
+```
+<type>/<short-description>
+
+feature/intake-form-validation
+fix/webhook-timeout-error
+chore/update-strapi-v5.1
+docs/add-api-documentation
+```
+
+| Prefix | Usage |
+|--------|-------|
+| `feature/` | New feature or page |
+| `fix/` | Bug fix |
+| `chore/` | Dependency updates, config changes, CI tweaks |
+| `docs/` | Documentation only |
+| `refactor/` | Code restructuring without behaviour change |
+| `test/` | Adding or fixing tests |
+
+#### Commit Messages
+
+Follow the [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+```
+<type>(<scope>): <short summary>
+
+<optional body — explain WHY, not WHAT>
+
+<optional footer — references, breaking changes>
+```
+
+**Examples:**
+```
+feat(forms): add client-side phone number validation
+
+Dutch phone numbers must match +31 or 06 format. Added regex
+validation in form-handler.ts so invalid numbers are caught
+before submission to Strapi API.
+
+Closes #42
+```
+
+```
+fix(webhook): increase timeout from 10s to 30s
+
+External webhook endpoints (Zapier/Make) occasionally respond
+slowly under load. 10s was causing spurious timeout errors
+in production logs.
+```
+
+| Type | When to use |
+|------|-------------|
+| `feat` | New feature or user-facing change |
+| `fix` | Bug fix |
+| `refactor` | Code change that neither fixes a bug nor adds a feature |
+| `test` | Adding or correcting tests |
+| `docs` | Documentation changes |
+| `chore` | Build process, dependency updates, config changes |
+| `style` | Formatting only (no logic change) |
+| `perf` | Performance improvement |
+
+#### Code Review Standards
+
+Every PR requires:
+1. **All CI checks pass** — lint, format, unit, integration, E2E
+2. **At least one approval** before merge
+3. **No `console.log` left in production code** — use `strapi.log` (backend) or remove (frontend)
+4. **No `any` types without a justification comment** — prefer `unknown` + type narrowing
+5. **No disabled tests** (`it.skip`, `test.skip`) without a linked GitHub issue
+6. **All new exports have JSDoc** per commenting conventions
+
+### Accessibility (a11y)
+
+The site must meet **WCAG 2.1 Level AA** compliance — this is a legal requirement for commercial websites in the EU/Netherlands.
+
+#### Semantic HTML
+
+- Use correct HTML elements for their purpose — `<nav>`, `<main>`, `<article>`, `<aside>`, `<section>`, `<header>`, `<footer>`
+- One `<main>` landmark per page
+- Headings follow a logical hierarchy — never skip levels (e.g., `<h1>` → `<h3>`)
+- Lists use `<ul>`/`<ol>` — never styled `<div>` sequences
+- Buttons use `<button>` for actions, `<a>` for navigation — never `<div onclick>`
+
+#### Keyboard Navigation
+
+- All interactive elements reachable via `Tab` key in logical order
+- Focus indicators visible on all focusable elements (never `outline: none` without replacement)
+- Modal/dialog traps focus within while open
+- Skip-to-content link as first focusable element on every page
+- `Escape` key closes modals, dropdowns, and mobile menu
+
+#### Forms
+
+- Every input has an associated `<label>` element (with `for`/`id` match or wrapping)
+- Required fields marked with `aria-required="true"` and visual indicator
+- Error messages linked to fields via `aria-describedby`
+- Form error summary announced to screen readers with `role="alert"` or `aria-live="assertive"`
+- Autocomplete attributes set on appropriate fields (`autocomplete="email"`, `autocomplete="tel"`, `autocomplete="name"`)
+
+#### Color & Contrast
+
+- Text-to-background contrast ratio meets WCAG AA:
+  - Normal text: minimum **4.5:1**
+  - Large text (18px+ bold or 24px+): minimum **3:1**
+- Never use color alone to convey information — always pair with text, icon, or pattern
+- Brand green `#7AAC2D` must be validated against chosen backgrounds for contrast compliance
+- Focus indicators must have minimum **3:1** contrast against surrounding content
+
+#### Images & Media
+
+- All `<img>` elements have `alt` text (from Strapi `alternativeText` field)
+- Decorative images use `alt=""` (empty alt, not missing alt)
+- Complex images (charts, infographics) have extended descriptions
+- No auto-playing media
+
+#### ARIA Usage
+
+- Use ARIA only when native HTML semantics are insufficient — prefer semantic HTML first
+- Language switcher has `aria-label="Taal selecteren"` / `"Select language"`
+- Mobile menu toggle has `aria-expanded`, `aria-controls`
+- Loading states announced with `aria-busy="true"` on the submit button
+- Current page indicated in nav with `aria-current="page"`
+
+#### Testing for Accessibility
+
+- Lighthouse accessibility audit score target: **95+**
+- `axe-core` integrated into Playwright E2E tests for automated a11y checks
+- Manual keyboard navigation tested for all user flows
+- Screen reader testing (VoiceOver / NVDA) for critical flows: forms, navigation, language switch
+
+### Security Best Practices
+
+#### Input Sanitization & Validation
+
+- **Server-side validation is mandatory** — never trust client-side validation alone
+- Strapi content type schemas enforce field types, required fields, and max lengths
+- Rich text output from Strapi is rendered via Astro's built-in HTML escaping — never use `set:html` with raw user input
+- Email fields validated with regex at both client and server level
+- Phone fields validated against expected format (Dutch `+31` / `06` patterns)
+
+#### XSS Prevention
+
+- Astro escapes all expressions in templates by default — no raw HTML injection
+- `set:html` directive used **only** for CMS rich text content from trusted Strapi admin users
+- User-submitted data (form fields) is never rendered as HTML — always text content
+- Cloudinary URLs are validated before rendering in `src` attributes
+- CSP headers configured (see below)
+
+#### Content Security Policy (CSP)
+
+Configure CSP headers in Astro middleware or Railway config:
+
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' https://www.googletagmanager.com;
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' https://res.cloudinary.com data:;
+  font-src 'self';
+  connect-src 'self' https://*.strapi.io;
+  frame-src https://www.googletagmanager.com;
+```
+
+#### CSRF Protection
+
+- Strapi has built-in CSRF protection for session-based requests
+- API-token-authenticated requests (frontend → backend) are not session-based, so CSRF is not applicable for those
+- Form submissions via REST API use `Content-Type: application/json` which is not susceptible to simple CSRF attacks
+- Cookie consent and session cookies use `SameSite=Strict` or `SameSite=Lax`
+
+#### Rate Limiting
+
+- Strapi rate limiting middleware enabled to prevent form submission abuse:
+  - Contact form: max **5 submissions per IP per 15 minutes**
+  - Intake form: max **3 submissions per IP per 15 minutes**
+- Return `429 Too Many Requests` with localized user-facing message
+- Rate limiting configured in `apps/backend/config/middlewares.ts`
+
+#### Secrets Management
+
+- All secrets stored in environment variables — never committed to git
+- `.env.example` documents required variables with placeholder values (no real secrets)
+- `.gitignore` excludes `.env`, `.env.local`, `.env.production`
+- API tokens rotated on schedule and after team member access changes
+- Webhook secret is a minimum 32-character random string
+- Strapi admin JWT secret and API token salt unique per environment
+
+#### Dependency Security
+
+- `pnpm audit` run in CI pipeline to detect known vulnerabilities
+- Dependabot or Renovate configured for automated dependency update PRs
+- Lock file (`pnpm-lock.yaml`) always committed — guarantees reproducible builds
+- No `*` or `latest` version ranges — use exact or caret (`^`) ranges only
+- Review changelogs before merging major version bumps
+
+### Dependency Management
+
+| Practice | Rule |
+|----------|------|
+| Package manager | pnpm only — enforced via `packageManager` field in root `package.json` and `engines` |
+| Version ranges | Caret `^` for app dependencies, exact versions for critical tooling (TypeScript, Strapi) |
+| Lock file | Always committed, never manually edited |
+| Adding packages | Justify every new dependency — prefer built-in Node.js APIs and existing packages |
+| Auditing | `pnpm audit` runs on every CI build; block merges on high/critical severity findings |
+| Unused deps | `depcheck` run periodically to detect and remove unused packages |
+| Peer deps | Resolve all peer dependency warnings during install |
+
+**Minimal dependency philosophy**: Before adding a package, ask:
+1. Can this be done with the Node.js standard library?
+2. Can this be done with what's already installed (Astro, Strapi, Tailwind)?
+3. Is the package actively maintained, well-typed, and < 50KB gzipped?
+4. Does it have known security issues?
+
+### Constants & Configuration
+
+No magic numbers or hardcoded strings scattered through the codebase. All configurable values live in dedicated constant files or environment variables.
+
+```typescript
+// apps/backend/src/constants.ts
+
+/**
+ * Application-wide constants. All magic numbers and configurable
+ * thresholds are defined here for single-source-of-truth management.
+ */
+
+/** Maximum time (ms) to wait for a webhook endpoint to respond */
+export const WEBHOOK_TIMEOUT_MS = 10_000;
+
+/** Maximum number of retry attempts for transient email failures */
+export const EMAIL_MAX_RETRIES = 3;
+
+/** Rate limit: max contact form submissions per IP per window */
+export const RATE_LIMIT_CONTACT = { max: 5, windowMs: 15 * 60 * 1000 };
+
+/** Rate limit: max intake form submissions per IP per window */
+export const RATE_LIMIT_INTAKE = { max: 3, windowMs: 15 * 60 * 1000 };
+```
+
+```typescript
+// apps/frontend/src/constants.ts
+
+/**
+ * Frontend application constants for UI configuration,
+ * breakpoints, and display limits.
+ */
+
+/** Number of blog posts per page in the listing */
+export const BLOG_POSTS_PER_PAGE = 9;
+
+/** Responsive breakpoints matching Tailwind config */
+export const BREAKPOINTS = {
+  sm: 640,
+  md: 768,
+  lg: 1024,
+  xl: 1280,
+} as const;
+
+/** Cloudinary responsive image widths for srcset generation */
+export const IMAGE_WIDTHS = [400, 800, 1200] as const;
+```
+
+**Rules:**
+- Every number literal in code must have a named constant or a clear inline explanation
+- Strings used in more than one location must be a constant
+- Configuration that may change per environment belongs in env vars, not constants
+
+### CSS / Tailwind Conventions
+
+#### Class Ordering
+
+Follow a consistent order for Tailwind utility classes (enforced by `prettier-plugin-tailwindcss`):
+
+```
+Layout → Positioning → Sizing → Spacing → Typography → Visual → Interactive → Responsive
+```
+
+```html
+<!-- Good: ordered by category -->
+<div class="flex items-center gap-4 px-6 py-3 text-sm font-medium text-white bg-brand-green rounded-lg hover:bg-green-700 md:px-8">
+
+<!-- Bad: random order -->
+<div class="bg-brand-green text-sm flex hover:bg-green-700 rounded-lg py-3 px-6 text-white md:px-8 items-center font-medium gap-4">
+```
+
+#### Tailwind Theme Extension
+
+Custom design tokens defined in `tailwind.config.mjs`:
+
+```javascript
+/** @type {import('tailwindcss').Config} */
+export default {
+  theme: {
+    extend: {
+      colors: {
+        'brand-green': '#7AAC2D',
+        'brand-green-dark': '#5C8A1E',
+        'brand-brown': '#8B6914',
+        'brand-gold': '#C9A84C',
+      },
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+      },
+    },
+  },
+};
+```
+
+#### Styling Rules
+
+- **Utility-first** — use Tailwind classes directly in markup; avoid custom CSS unless absolutely necessary
+- **Component extraction** — when the same set of 5+ utilities repeats across 3+ places, extract into an Astro component (not a CSS class)
+- **No `@apply` in most cases** — `@apply` hides utilities and breaks searchability; only use for base element styles in `global.css` (e.g., headings, links)
+- **Responsive design** — mobile-first: base styles for mobile, then `md:`, `lg:`, `xl:` for larger screens
+- **Dark mode** — not in scope for initial launch but Tailwind `dark:` variant ready if needed later
+- **No inline `style` attributes** — all styling through Tailwind classes or scoped `<style>` in Astro components
+
+### API Design Conventions
+
+These conventions apply to any custom API endpoints beyond Strapi's auto-generated REST API.
+
+#### Request / Response Format
+
+- All request and response bodies use JSON (`Content-Type: application/json`)
+- Follow Strapi's response envelope format for consistency:
+
+```json
+{
+  "data": { ... },
+  "meta": { "pagination": { "page": 1, "pageSize": 25, "pageCount": 4, "total": 100 } }
+}
+```
+
+- Error responses follow Strapi's error format:
+
+```json
+{
+  "error": {
+    "status": 400,
+    "name": "ValidationError",
+    "message": "email must be a valid email",
+    "details": { "errors": [...] }
+  }
+}
+```
+
+#### Pagination
+
+- Default page size: **25** items
+- Maximum page size: **100** items (prevent abuse)
+- Use `page` + `pageSize` query parameters (Strapi convention)
+- Always return `meta.pagination` in collection responses
+
+#### Query Parameters
+
+- Filtering: `filters[field][$operator]=value` (Strapi convention)
+- Sorting: `sort=field:asc` or `sort=field:desc`
+- Population: `populate=relation1,relation2` for related data
+- Locale: `locale=nl` or `locale=en`
+- Field selection: `fields=title,slug,createdAt` to reduce payload size
+
+#### HTTP Status Codes
+
+| Code | Usage |
+|------|-------|
+| `200` | Successful GET, PUT, PATCH |
+| `201` | Successful POST (resource created) |
+| `204` | Successful DELETE (no content) |
+| `400` | Validation error, malformed request |
+| `401` | Missing or invalid authentication |
+| `403` | Authenticated but not authorized |
+| `404` | Resource not found |
+| `429` | Rate limited |
+| `500` | Unexpected server error |
+
+### Async Patterns
+
+#### No Floating Promises
+
+Every `async` function call must be `await`ed or explicitly handled. Unhandled promise rejections crash Node.js.
+
+```typescript
+// Good — awaited
+await sendEmail(payload);
+
+// Good — explicitly fire-and-forget with error handling
+dispatchWebhook(payload).catch((err) =>
+  strapi.log.error('Webhook failed:', err.message)
+);
+
+// Bad — floating promise, rejection will crash the process
+sendEmail(payload);
+```
+
+#### Parallel vs Sequential Execution
+
+```typescript
+// Good — independent operations run in parallel
+const [pages, posts, settings] = await Promise.all([
+  fetchAPI<Page[]>('/api/pages', { locale }),
+  fetchAPI<BlogPost[]>('/api/blog-posts', { locale, sort: 'createdAt:desc' }),
+  fetchAPI<GlobalSettings>('/api/global-settings', { locale }),
+]);
+
+// Good — dependent operations run sequentially
+const category = await fetchAPI<BlogCategory>(`/api/blog-categories/${id}`);
+const posts = await fetchAPI<BlogPost[]>('/api/blog-posts', {
+  'filters[category][id][$eq]': String(category.id),
+});
+```
+
+- Use `Promise.all()` when operations are independent — reduces page load time
+- Use `Promise.allSettled()` when some failures are acceptable (e.g., fetching optional sidebar data)
+- Never use `Promise.all()` for operations where one failure should not cancel the others
+
+#### Error Boundaries in Async Code
+
+Every async boundary (API calls, form submissions, lifecycle hooks) must have a try/catch or `.catch()` at the top level. Unhandled rejections are never acceptable in production.
+
+### Immutability & Functional Patterns
+
+- Prefer `const` over `let` — only use `let` when reassignment is genuinely needed (loop counters, accumulators)
+- Never use `var`
+- Avoid mutating function arguments — return new objects/arrays instead:
+
+```typescript
+// Good — returns a new array
+function addTimestamp<T>(items: T[]): (T & { timestamp: string })[] {
+  return items.map((item) => ({ ...item, timestamp: new Date().toISOString() }));
+}
+
+// Bad — mutates the input array
+function addTimestamp(items: any[]): void {
+  items.forEach((item) => { item.timestamp = new Date().toISOString(); });
+}
+```
+
+- Use `readonly` for interface properties that should never change after creation:
+
+```typescript
+interface WebhookPayload {
+  readonly event: 'contact_submission.created' | 'intake_submission.created';
+  readonly timestamp: string;
+  readonly data: Record<string, unknown>;
+}
+```
+
+- Prefer `as const` for literal arrays and objects that should not be mutated:
+
+```typescript
+const SUPPORTED_LOCALES = ['nl', 'en'] as const;
+```
+
 ---
 
 ## Phase 1: Project Scaffolding
