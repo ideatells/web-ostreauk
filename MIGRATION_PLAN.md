@@ -31,7 +31,8 @@
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | Frontend | Astro.js (SSR) | Node.js adapter, TypeScript |
-| Styling | Tailwind CSS | Fresh modern design |
+| Styling | Tailwind CSS | Foundation for shadcn/ui components + custom styling |
+| UI Components | shadcn/ui | Accessible, composable components built on Radix UI + Tailwind |
 | Backend/CMS | Strapi v5 | Headless CMS with admin panel |
 | Database | PostgreSQL | Railway managed instance |
 | Media | Cloudinary (cloudinary.com) | Image uploads + CDN + optimization |
@@ -736,6 +737,28 @@ export default {
 - **Responsive design** — mobile-first: base styles for mobile, then `md:`, `lg:`, `xl:` for larger screens
 - **Dark mode** — not in scope for initial launch but Tailwind `dark:` variant ready if needed later
 - **No inline `style` attributes** — all styling through Tailwind classes or scoped `<style>` in Astro components
+
+### shadcn/ui Component Conventions
+
+All UI components **must** use [shadcn/ui](https://ui.shadcn.com/) as the component library. shadcn/ui provides accessible, composable components built on Radix UI primitives and styled with Tailwind CSS.
+
+#### MCP Setup
+
+Initialize the shadcn MCP server for Claude with:
+
+```bash
+npx shadcn@latest mcp init --client claude
+```
+
+This enables Claude to browse and install shadcn/ui components directly during development.
+
+#### Usage Rules
+
+- **shadcn/ui first** — always check if a shadcn/ui component exists before building a custom one (Button, Card, Dialog, Form, Input, Select, etc.)
+- **Install components as needed** — use `npx shadcn@latest add <component>` to add individual components to the project
+- **Customization via Tailwind** — shadcn/ui components are copied into the project and can be customized using Tailwind classes and the project's design tokens (brand colors, fonts)
+- **No alternative UI libraries** — do not install other component libraries (e.g., Material UI, Chakra, Ant Design); shadcn/ui is the single source of UI primitives
+- **Accessibility built-in** — shadcn/ui components are built on Radix UI, which provides WAI-ARIA compliant keyboard navigation, focus management, and screen reader support out of the box
 
 ### API Design Conventions
 
