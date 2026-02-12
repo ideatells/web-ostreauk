@@ -53,7 +53,8 @@ This is a migration of the ostrea.uk website (a Dutch legal/financial services f
 | Layer | Technology | Notes |
 |-------|-----------|-------|
 | Frontend | Astro.js (SSR) | Node.js adapter, TypeScript, port 4321 |
-| Styling | Tailwind CSS | Utility-first, mobile-first responsive |
+| Styling | Tailwind CSS | Foundation for shadcn/ui components + custom styling |
+| UI Components | shadcn/ui | Accessible, composable components built on Radix UI + Tailwind |
 | Backend/CMS | Strapi v5 | Headless CMS with admin panel, TypeScript, port 1337 |
 | Database | PostgreSQL | Railway managed instance |
 | Media | Cloudinary | Image uploads, CDN, auto-optimization (`f_auto`, `q_auto`, `w_auto`) |
@@ -488,8 +489,8 @@ Strict 4-group ordering with blank-line separators:
 
 ### Frontend Conventions
 
-- **Components**: Astro components (`.astro` files) for all UI
-- **Styling**: Tailwind CSS utility classes exclusively; global styles only in `styles/global.css` (see CSS / Tailwind Conventions below)
+- **Components**: Astro components (`.astro` files) for all UI, using shadcn/ui as the component library
+- **Styling**: Tailwind CSS utility classes exclusively; global styles only in `styles/global.css` (see CSS / Tailwind Conventions and shadcn/ui Conventions below)
 - **Zero JS by default**: Astro ships no client-side JavaScript unless explicitly opted in. Use `client:load` or `client:visible` directives only when interactivity is needed (forms, language switcher)
 - **i18n routing**: All pages under `[lang]/` dynamic route. Root `/` redirects to `/nl`
 - **Static UI strings**: Stored as TypeScript translation objects in `src/lib/i18n.ts`, not in CMS
@@ -515,6 +516,20 @@ Strict 4-group ordering with blank-line separators:
 - **Mobile-first**: base styles for mobile, `md:`, `lg:`, `xl:` for larger screens
 - **No inline `style` attributes**
 - **Brand tokens**: `brand-green` (#7AAC2D), `brand-green-dark` (#5C8A1E), `brand-brown` (#8B6914), `brand-gold` (#C9A84C) defined in `tailwind.config.mjs`
+
+### shadcn/ui Conventions
+
+> Full rules: `MIGRATION_PLAN.md` § shadcn/ui Component Conventions
+
+All UI components **must** use [shadcn/ui](https://ui.shadcn.com/) as the component library. shadcn/ui provides accessible, composable components built on Radix UI primitives and styled with Tailwind CSS.
+
+**MCP setup**: `npx shadcn@latest mcp init --client claude`
+
+- **shadcn/ui first** — always check if a shadcn/ui component exists before building a custom one (Button, Card, Dialog, Form, Input, Select, etc.)
+- **Install components as needed** — use `npx shadcn@latest add <component>` to add individual components
+- **Customization via Tailwind** — shadcn/ui components are copied into the project and customized using Tailwind classes and brand design tokens
+- **No alternative UI libraries** — do not install other component libraries (Material UI, Chakra, Ant Design, etc.); shadcn/ui is the single source of UI primitives
+- **Accessibility built-in** — shadcn/ui components are built on Radix UI, providing WAI-ARIA compliant keyboard navigation, focus management, and screen reader support
 
 ### Constants & Configuration
 
