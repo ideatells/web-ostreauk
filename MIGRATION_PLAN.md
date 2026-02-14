@@ -2942,3 +2942,15 @@ After deployment:
 | 36 | Configure Google Ads conversion tracking via GTM | Step 35 |
 | 37 | Connect webhook URL to automation tool (Zapier/Make/n8n) | Step 35 |
 | 38 | Migrate content in Strapi admin (with SEO fields filled) | Step 35 |
+
+---
+
+## Security And Deployment Checklist Addendum
+
+- [ ] Create production API token in Strapi admin panel
+- [ ] Set `STRAPI_API_TOKEN` environment variable in Railway frontend service
+- [ ] Set `FRONTEND_URL` and `PRODUCTION_FRONTEND_URL` in Railway backend service
+- [ ] Verify CORS allows production frontend origin
+- [ ] Test rate limiting with production IP addresses
+- [ ] Confirm Public role permissions are correctly configured
+- [ ] Rotate API tokens on a regular schedule (for example, every 90 days)
