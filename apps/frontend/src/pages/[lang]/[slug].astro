@@ -1,0 +1,51 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import Hero from '../../components/Hero.astro';
+import { fetchPages, type Locale, type PageData } from '../../lib/strapi';
+import { SUPPORTED_LOCALES } from '../../lib/i18n';
+
+export async function getStaticPaths() {
+  const allPaths = await Promise.all(
+    SUPPORTED_LOCALES.map(async (locale) => {
+      const pagesResponse = await fetchPages(locale);
+      return pagesResponse.data
+        .filter((page) => page.slug !== 'home' && page.slug !== 'homepage')
+        .map((page) => ({
+          params: { lang: locale, slug: page.slug },
+          props: { page, lang: locale },
+        }));
+    })
+  );
+
+  return allPaths.flat();
+}
+
+interface Props {
+  page: PageData;
+  lang: Locale;
+}
+
+const { page, lang } = Astro.props;
+const plainContent = (page.content || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+const fallbackDescription = plainContent.slice(0, 160);
+const title = page.seo?.seo_title || page.title;
+const description = page.seo?.seo_description || fallbackDescription;
+---
+
+<BaseLayout title={title} description={description} lang={lang}>
+  {
+    (page.hero_title || page.hero_image) && (
+      <Hero
+        title={page.hero_title || page.title}
+        subtitle={page.hero_subtitle || undefined}
+        image={page.hero_image}
+        imageAlt={page.hero_title || page.title}
+      />
+    )
+  }
+
+  <div class="mx-auto max-w-4xl px-4 py-12">
+    {!page.hero_title && <h1 class="mb-6 text-3xl font-bold text-slate-900 md:text-4xl">{page.title}</h1>}
+    <div class="prose prose-slate max-w-none" set:html={page.content || ''} />
+  </div>
+</BaseLayout>

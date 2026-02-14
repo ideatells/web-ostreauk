@@ -1,14 +1,4 @@
 ---
-import { Button } from "@/components/ui/button";
-import BaseLayout from "../layouts/BaseLayout.astro";
+return Astro.redirect('/nl');
 ---
 
-<BaseLayout title="Ostrea UK - Test" lang="nl">
-  <section class="container py-16">
-    <h1 class="mb-4 text-4xl font-bold text-brand-green">Ostrea UK</h1>
-    <p class="mb-8 max-w-2xl text-lg text-slate-700">
-      Astro SSR, Tailwind CSS, and shadcn/ui are configured.
-    </p>
-    <Button client:load>Neem contact op</Button>
-  </section>
-</BaseLayout>
