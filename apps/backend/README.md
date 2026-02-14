@@ -1,69 +1,45 @@
-# 🚀 Getting started with Strapi
+# Backend Services
 
-Strapi comes with a full featured [Command Line Interface](https://docs.strapi.io/dev-docs/cli) (CLI) which lets you scaffold and manage your project in seconds.
+## SMTP2GO Email Service
 
-### `develop`
+Located at `src/services/smtp2go.ts`, this service sends transactional emails via the SMTP2GO REST API.
 
-Start your Strapi application with autoReload enabled. [Learn more](https://docs.strapi.io/dev-docs/cli#strapi-develop)
+### Usage
 
-```
-npm run develop
-# or
-yarn develop
-```
+```typescript
+import { sendEmail } from './services/smtp2go';
+import { buildContactEmailHTML, buildContactEmailText } from './services/email-templates';
 
-### `start`
+// In a lifecycle hook
+const emailData = {
+  name: event.result.name,
+  email: event.result.email,
+  phone: event.result.phone,
+  message: event.result.message,
+  createdAt: event.result.createdAt,
+};
 
-Start your Strapi application with autoReload disabled. [Learn more](https://docs.strapi.io/dev-docs/cli#strapi-start)
-
-```
-npm run start
-# or
-yarn start
-```
-
-### `build`
-
-Build your admin panel. [Learn more](https://docs.strapi.io/dev-docs/cli#strapi-build)
-
-```
-npm run build
-# or
-yarn build
+await sendEmail({
+  to: process.env.ADMIN_NOTIFICATION_EMAIL!,
+  sender: process.env.SMTP2GO_SENDER_EMAIL!,
+  subject: 'Nieuw Contactformulier',
+  htmlBody: buildContactEmailHTML(emailData),
+  textBody: buildContactEmailText(emailData),
+});
 ```
 
-## ⚙️ Deployment
+### Environment Variables
 
-Strapi gives you many possible deployment options for your project including [Strapi Cloud](https://cloud.strapi.io). Browse the [deployment section of the documentation](https://docs.strapi.io/dev-docs/deployment) to find the best solution for your use case.
+- `SMTP2GO_API_KEY` - API key from SMTP2GO dashboard
+- `SMTP2GO_SENDER_EMAIL` - Verified sender address (e.g., `noreply@ostrea.uk`)
+- `ADMIN_NOTIFICATION_EMAIL` - Recipient for form notifications (e.g., `info@ostrea.uk`)
 
-```
-yarn strapi deploy
-```
+### Error Handling
 
-## Type generation
+The service throws `SMTP2GOError` on failures. Email sending is considered critical, so errors should be logged and may block the lifecycle hook if needed.
 
-Regenerate Strapi TypeScript types after schema changes:
+### Retry Logic
 
-```
-pnpm ts:generate-types
-```
-
-## 📚 Learn more
-
-- [Resource center](https://strapi.io/resource-center) - Strapi resource center.
-- [Strapi documentation](https://docs.strapi.io) - Official Strapi documentation.
-- [Strapi tutorials](https://strapi.io/tutorials) - List of tutorials made by the core team and the community.
-- [Strapi blog](https://strapi.io/blog) - Official Strapi blog containing articles made by the Strapi team and the community.
-- [Changelog](https://strapi.io/changelog) - Find out about the Strapi product updates, new features and general improvements.
-
-Feel free to check out the [Strapi GitHub repository](https://github.com/strapi/strapi). Your feedback and contributions are welcome!
-
-## ✨ Community
-
-- [Discord](https://discord.strapi.io) - Come chat with the Strapi community including the core team.
-- [Forum](https://forum.strapi.io/) - Place to discuss, ask questions and find answers, show your Strapi project and get feedback or just talk with other Community members.
-- [Awesome Strapi](https://github.com/strapi/awesome-strapi) - A curated list of awesome things related to Strapi.
-
----
-
-<sub>🤫 Psst! [Strapi is hiring](https://strapi.io/careers).</sub>
+- Maximum 3 attempts
+- Exponential backoff (1s, 2s, 4s)
+- 10-second timeout per request
