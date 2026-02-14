@@ -1,0 +1,71 @@
+---
+import IntakeForm from "../../components/IntakeForm"
+import BaseLayout from "../../layouts/BaseLayout.astro"
+import { getTranslations, validateLocale } from "../../lib/i18n"
+import { fetchGlobalSettings, type Locale } from "../../lib/strapi"
+
+export function getStaticPaths() {
+  return [{ params: { lang: "nl" } }, { params: { lang: "en" } }]
+}
+
+const langParam = Astro.params.lang ?? "nl"
+
+if (!validateLocale(langParam)) {
+  throw new Error(`Unsupported locale: ${langParam}`)
+}
+
+const lang: Locale = langParam
+const t = getTranslations(lang)
+const globalSettings = await fetchGlobalSettings(lang)
+
+const pageTitle = `${lang === "nl" ? "NU OPRICHTEN" : "Start Now"} | ${globalSettings?.site_name || "Ostrea"}`
+const pageDescription =
+  lang === "nl"
+    ? "Start direct met uw intake voor juridische en fiscale dienstverlening."
+    : "Start your intake for legal and tax advisory services."
+---
+
+<BaseLayout title={pageTitle} description={pageDescription} lang={lang}>
+  <section class="mx-auto max-w-3xl px-4 py-12 md:py-16">
+    <h1 class="text-3xl font-bold text-slate-900 md:text-4xl">
+      {lang === "nl" ? "NU OPRICHTEN" : "Start Now"}
+    </h1>
+    <p class="mt-4 text-slate-700">
+      {lang === "nl"
+        ? "Vul het intakeformulier in en wij nemen snel contact met u op met een passend voorstel."
+        : "Complete the intake form and we will contact you shortly with a tailored proposal."}
+    </p>
+
+    <div class="mt-8 rounded-2xl bg-slate-50 p-6">
+      <h2 class="text-lg font-semibold text-slate-900">
+        {lang === "nl" ? "Waarom kiezen voor Ostrea?" : "Why choose Ostrea?"}
+      </h2>
+      <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+        <li>
+          {lang === "nl"
+            ? "Specialistische begeleiding bij bedrijfsjuridische vraagstukken"
+            : "Specialized support for corporate legal matters"}
+        </li>
+        <li>
+          {lang === "nl"
+            ? "Heldere communicatie en praktische oplossingen"
+            : "Clear communication and practical solutions"}
+        </li>
+        <li>
+          {lang === "nl"
+            ? "Persoonlijk advies afgestemd op uw situatie"
+            : "Personalized advice tailored to your situation"}
+        </li>
+      </ul>
+    </div>
+
+    <div class="mt-8">
+      <IntakeForm
+        client:load
+        locale={lang}
+        translations={t.form}
+        serviceTypeTranslations={t.serviceType}
+      />
+    </div>
+  </section>
+</BaseLayout>

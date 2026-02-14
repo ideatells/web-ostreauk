@@ -31,8 +31,11 @@ export interface Translations {
     companyName: string;
     serviceType: string;
     submit: string;
+    submitting: string;
     required: string;
     invalidEmail: string;
+    minLength: string;
+    submitError: string;
   };
   serviceType: {
     bedrijfsjuristen: string;
@@ -79,8 +82,11 @@ export const translations: Record<Locale, Translations> = {
       companyName: 'Bedrijfsnaam',
       serviceType: 'Type dienst',
       submit: 'Versturen',
+      submitting: 'Verzenden...',
       required: 'Dit veld is verplicht',
       invalidEmail: 'Voer een geldig e-mailadres in',
+      minLength: 'Minimaal {n} tekens',
+      submitError: 'Er is een fout opgetreden. Probeer het opnieuw.',
     },
     serviceType: {
       bedrijfsjuristen: 'Bedrijfsjuristen',
@@ -123,8 +129,11 @@ export const translations: Record<Locale, Translations> = {
       companyName: 'Company name',
       serviceType: 'Service type',
       submit: 'Submit',
+      submitting: 'Submitting...',
       required: 'This field is required',
       invalidEmail: 'Please enter a valid email address',
+      minLength: 'Minimum {n} characters',
+      submitError: 'An error occurred. Please try again.',
     },
     serviceType: {
       bedrijfsjuristen: 'Corporate lawyers',

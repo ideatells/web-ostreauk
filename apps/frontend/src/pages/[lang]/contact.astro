@@ -1,0 +1,54 @@
+---
+import ContactForm from "../../components/ContactForm"
+import BaseLayout from "../../layouts/BaseLayout.astro"
+import { getTranslations, validateLocale } from "../../lib/i18n"
+import { fetchGlobalSettings, type Locale } from "../../lib/strapi"
+
+export function getStaticPaths() {
+  return [{ params: { lang: "nl" } }, { params: { lang: "en" } }]
+}
+
+const langParam = Astro.params.lang ?? "nl"
+
+if (!validateLocale(langParam)) {
+  throw new Error(`Unsupported locale: ${langParam}`)
+}
+
+const lang: Locale = langParam
+const t = getTranslations(lang)
+const globalSettings = await fetchGlobalSettings(lang)
+
+const pageTitle = `${lang === "nl" ? "Contact" : "Contact"} | ${globalSettings?.site_name || "Ostrea"}`
+const pageDescription =
+  lang === "nl"
+    ? "Neem contact met ons op voor juridisch en fiscaal advies."
+    : "Contact us for legal and tax advisory services."
+---
+
+<BaseLayout title={pageTitle} description={pageDescription} lang={lang}>
+  <section class="mx-auto max-w-3xl px-4 py-12 md:py-16">
+    <h1 class="text-3xl font-bold text-slate-900 md:text-4xl">
+      {lang === "nl" ? "Contact" : "Contact"}
+    </h1>
+    <p class="mt-4 text-slate-700">
+      {lang === "nl"
+        ? "Heeft u een vraag? Neem contact met ons op via het formulier of gebruik onderstaande gegevens."
+        : "Do you have a question? Contact us using the form or the details below."}
+    </p>
+
+    <div class="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+      <p>
+        <strong>{lang === "nl" ? "Telefoon" : "Phone"}:</strong>{" "}
+        {globalSettings?.phone_number || (lang === "nl" ? "Niet beschikbaar" : "Not available")}
+      </p>
+      <p class="mt-1">
+        <strong>Email:</strong>{" "}
+        {globalSettings?.email || (lang === "nl" ? "Niet beschikbaar" : "Not available")}
+      </p>
+    </div>
+
+    <div class="mt-8">
+      <ContactForm client:load locale={lang} translations={t.form} />
+    </div>
+  </section>
+</BaseLayout>
