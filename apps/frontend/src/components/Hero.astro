@@ -1,0 +1,70 @@
+---
+import { STRAPI_URL } from '../constants';
+import type { ContentEntity, StrapiMedia } from '../lib/strapi';
+
+interface Props {
+  title: string;
+  subtitle?: string;
+  image?: ContentEntity<StrapiMedia> | null;
+  imageAlt?: string;
+}
+
+const {
+  title,
+  subtitle,
+  image = null,
+  imageAlt = title,
+} = Astro.props;
+
+function resolveMediaUrl(url: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+
+  return `${STRAPI_URL}${url}`;
+}
+
+function applyCloudinaryTransform(url: string, transform: string): string {
+  return url.includes('/upload/')
+    ? url.replace('/upload/', `/upload/${transform}/`)
+    : url;
+}
+
+const heroImageUrl = image?.attributes?.url
+  ? applyCloudinaryTransform(
+      resolveMediaUrl(image.attributes.url),
+      'f_auto,q_auto,w_1920,h_800,c_fill'
+    )
+  : null;
+
+const sectionStyle = heroImageUrl
+  ? `background-image: linear-gradient(to bottom, rgba(15, 23, 42, 0.35), rgba(15, 23, 42, 0.72)), url('${heroImageUrl}'); background-size: cover; background-position: center;`
+  : undefined;
+---
+
+<section
+  aria-label="Hero"
+  class:list={[
+    'relative flex min-h-[400px] items-center justify-center px-4 py-16 md:min-h-[500px] md:py-24',
+    heroImageUrl ? 'text-white' : 'bg-brand-green text-white',
+  ]}
+  style={sectionStyle}
+>
+  {
+    heroImageUrl && (
+      <img
+        src={heroImageUrl}
+        alt={imageAlt}
+        loading="eager"
+        decoding="async"
+        class="sr-only"
+      />
+    )
+  }
+  <div class="mx-auto max-w-4xl text-center">
+    <h1 class="text-4xl font-bold leading-tight drop-shadow-sm md:text-5xl lg:text-6xl">
+      {title}
+    </h1>
+    {subtitle && <p class="mt-4 text-lg font-medium text-white/95 md:text-xl">{subtitle}</p>}
+  </div>
+</section>

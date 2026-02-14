@@ -1,0 +1,283 @@
+---
+import LanguageSwitcher from './LanguageSwitcher.astro';
+
+import { STRAPI_URL } from '../constants';
+import { fetchGlobalSettings, fetchPages } from '../lib/strapi';
+import type { Locale, PageData } from '../lib/strapi';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const pathname = Astro.url.pathname.replace(/\/$/, '') || `/${locale}`;
+
+const [pagesResponse, globalSettings] = await Promise.all([
+  fetchPages(locale),
+  fetchGlobalSettings(locale),
+]);
+
+const navPages = pagesResponse.data.filter((page) => page.show_in_nav);
+const homepageHref = `/${locale}`;
+const siteName = globalSettings?.site_name ?? 'Ostrea';
+
+function resolveMediaUrl(url: string): string {
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    return url;
+  }
+
+  return `${STRAPI_URL}${url}`;
+}
+
+function applyCloudinaryTransform(url: string, transform: string): string {
+  return url.includes('/upload/')
+    ? url.replace('/upload/', `/upload/${transform}/`)
+    : url;
+}
+
+function buildLogoUrl(): string | null {
+  const logoPath = globalSettings?.logo?.attributes?.url;
+  if (!logoPath) {
+    return null;
+  }
+
+  return applyCloudinaryTransform(resolveMediaUrl(logoPath), 'f_auto,q_auto,w_200');
+}
+
+function formatPhoneForTel(phone: string): string {
+  return phone.replace(/[^\d+]/g, '');
+}
+
+function isLinkActive(page: PageData): boolean {
+  const pagePath = `/${locale}/${page.slug}`.replace(/\/$/, '');
+  return pathname === pagePath;
+}
+
+const logoUrl = buildLogoUrl();
+const phoneNumber = globalSettings?.phone_number ?? '';
+---
+
+<header class="sticky top-0 z-50 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
+  <nav class="mx-auto max-w-7xl px-4 py-3 md:px-6" aria-label="Main navigation">
+    <div class="flex items-center justify-between gap-4">
+      <a
+        href={homepageHref}
+        class="inline-flex items-center rounded-md text-slate-900 transition-colors hover:text-brand-green focus-visible:ring-brand-green"
+      >
+        {
+          logoUrl ? (
+            <img
+              src={logoUrl}
+              alt={globalSettings?.logo?.attributes?.alternativeText || siteName}
+              class="h-10 w-auto"
+              loading="eager"
+              decoding="async"
+            />
+          ) : (
+            <span class="text-xl font-semibold tracking-tight">{siteName}</span>
+          )
+        }
+      </a>
+
+      <ul class="hidden items-center gap-6 md:flex">
+        {
+          navPages.map((page) => {
+            const active = isLinkActive(page);
+            return (
+              <li>
+                <a
+                  href={`/${locale}/${page.slug}`}
+                  aria-current={active ? 'page' : undefined}
+                  class:list={[
+                    'rounded-md px-2 py-1 text-sm font-medium transition-colors focus-visible:ring-brand-green',
+                    active
+                      ? 'text-brand-green'
+                      : 'text-slate-700 hover:text-brand-green',
+                  ]}
+                >
+                  {page.title}
+                </a>
+              </li>
+            );
+          })
+        }
+      </ul>
+
+      <div class="hidden items-center gap-4 md:flex">
+        {
+          phoneNumber && (
+            <a
+              href={`tel:${formatPhoneForTel(phoneNumber)}`}
+              class="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm font-medium text-slate-700 transition-colors hover:text-brand-green focus-visible:ring-brand-green"
+            >
+              <svg
+                class="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.3 19.3 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.61 2.62a2 2 0 0 1-.45 2.11L8 9.91a16 16 0 0 0 6.09 6.09l1.46-1.27a2 2 0 0 1 2.11-.45c.84.28 1.72.49 2.62.61A2 2 0 0 1 22 16.92z" />
+              </svg>
+              <span>{phoneNumber}</span>
+            </a>
+          )
+        }
+        <LanguageSwitcher currentLocale={locale} />
+      </div>
+
+      <button
+        id="mobile-menu-button"
+        type="button"
+        class="inline-flex items-center justify-center rounded-md border border-slate-300 p-2 text-slate-700 md:hidden"
+        aria-expanded="false"
+        aria-controls="mobile-menu"
+        aria-label="Toggle menu"
+      >
+        <svg
+          class="h-5 w-5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          aria-hidden="true"
+        >
+          <path d="M3 6h18M3 12h18M3 18h18" />
+        </svg>
+      </button>
+    </div>
+
+    <div id="mobile-menu" class="mt-3 hidden border-t border-slate-200 pt-3 md:hidden">
+      <ul class="space-y-2">
+        {
+          navPages.map((page) => {
+            const active = isLinkActive(page);
+            return (
+              <li>
+                <a
+                  href={`/${locale}/${page.slug}`}
+                  aria-current={active ? 'page' : undefined}
+                  class:list={[
+                    'block rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    active
+                      ? 'bg-brand-green/10 text-brand-green'
+                      : 'text-slate-700 hover:bg-slate-100 hover:text-brand-green',
+                  ]}
+                >
+                  {page.title}
+                </a>
+              </li>
+            );
+          })
+        }
+      </ul>
+
+      <div class="mt-3 flex flex-col gap-3 border-t border-slate-200 pt-3">
+        {
+          phoneNumber && (
+            <a
+              href={`tel:${formatPhoneForTel(phoneNumber)}`}
+              class="inline-flex items-center gap-2 rounded-md px-1 py-1 text-sm font-medium text-slate-700"
+            >
+              <svg
+                class="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                aria-hidden="true"
+              >
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.8 19.8 0 0 1-8.63-3.07 19.3 19.3 0 0 1-6-6A19.8 19.8 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.9.33 1.78.61 2.62a2 2 0 0 1-.45 2.11L8 9.91a16 16 0 0 0 6.09 6.09l1.46-1.27a2 2 0 0 1 2.11-.45c.84.28 1.72.49 2.62.61A2 2 0 0 1 22 16.92z" />
+              </svg>
+              <span>{phoneNumber}</span>
+            </a>
+          )
+        }
+        <LanguageSwitcher currentLocale={locale} />
+      </div>
+    </div>
+  </nav>
+</header>
+
+<script is:inline>
+  const button = document.getElementById('mobile-menu-button');
+  const menu = document.getElementById('mobile-menu');
+
+  if (button && menu) {
+    const focusableSelector =
+      'a[href], button:not([disabled]), select, textarea, input, [tabindex]:not([tabindex="-1"])';
+
+    const closeMenu = () => {
+      menu.classList.add('hidden');
+      button.setAttribute('aria-expanded', 'false');
+    };
+
+    const openMenu = () => {
+      menu.classList.remove('hidden');
+      button.setAttribute('aria-expanded', 'true');
+      const firstFocusable = menu.querySelector(focusableSelector);
+      if (firstFocusable instanceof HTMLElement) {
+        firstFocusable.focus();
+      }
+    };
+
+    button.addEventListener('click', () => {
+      const expanded = button.getAttribute('aria-expanded') === 'true';
+      if (expanded) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
+    });
+
+    document.addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (
+        button.getAttribute('aria-expanded') === 'true' &&
+        !menu.contains(target) &&
+        !button.contains(target)
+      ) {
+        closeMenu();
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (button.getAttribute('aria-expanded') !== 'true') {
+        return;
+      }
+
+      if (event.key === 'Escape') {
+        closeMenu();
+        button.focus();
+        return;
+      }
+
+      if (event.key === 'Tab') {
+        const focusableElements = Array.from(
+          menu.querySelectorAll(focusableSelector)
+        ).filter((element) => element instanceof HTMLElement);
+
+        if (focusableElements.length === 0) {
+          return;
+        }
+
+        const first = focusableElements[0];
+        const last = focusableElements[focusableElements.length - 1];
+        const activeElement = document.activeElement;
+
+        if (event.shiftKey && activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    });
+  }
+</script>

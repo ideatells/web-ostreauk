@@ -1,17 +1,24 @@
 ---
 import "../styles/global.css";
+import Footer from "../components/Footer.astro";
+import Header from "../components/Header.astro";
+
+import { getLocaleFromUrl } from "../lib/i18n";
+import type { Locale } from "../lib/strapi";
 
 interface Props {
   title: string;
   description?: string;
-  lang?: "nl" | "en";
+  lang?: Locale;
 }
 
-const { title, description, lang = "nl" } = Astro.props;
+const { title, description, lang } = Astro.props;
+const locale = getLocaleFromUrl(Astro.url);
+const htmlLang = lang ?? locale;
 ---
 
 <!doctype html>
-<html lang={lang}>
+<html lang={htmlLang}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -19,16 +26,12 @@ const { title, description, lang = "nl" } = Astro.props;
     {description && <meta name="description" content={description} />}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   </head>
-  <body>
+  <body class="min-h-screen flex flex-col">
     <a class="skip-to-content" href="#main-content">Skip to content</a>
-    <header>
-      <!-- Placeholder for Header component -->
-    </header>
-    <main id="main-content">
+    <Header locale={locale} />
+    <main id="main-content" class="flex-1">
       <slot />
     </main>
-    <footer>
-      <!-- Placeholder for Footer component -->
-    </footer>
+    <Footer locale={locale} />
   </body>
 </html>
