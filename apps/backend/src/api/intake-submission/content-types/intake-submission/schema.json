@@ -1,0 +1,44 @@
+{
+  "kind": "collectionType",
+  "collectionName": "intake_submissions",
+  "info": {
+    "singularName": "intake-submission",
+    "pluralName": "intake-submissions",
+    "displayName": "Intake Submission"
+  },
+  "options": {
+    "draftAndPublish": false
+  },
+  "pluginOptions": {
+    "i18n": {
+      "localized": false
+    }
+  },
+  "attributes": {
+    "name": {
+      "type": "string",
+      "required": true
+    },
+    "email": {
+      "type": "email",
+      "required": true
+    },
+    "phone": {
+      "type": "string"
+    },
+    "company_name": {
+      "type": "string"
+    },
+    "service_type": {
+      "type": "enumeration",
+      "enum": [
+        "bedrijfsjuristen",
+        "trust_formation",
+        "belastingadvies"
+      ]
+    },
+    "message": {
+      "type": "text"
+    }
+  }
+}

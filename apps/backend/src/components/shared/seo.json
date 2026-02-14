@@ -1,0 +1,46 @@
+{
+  "collectionName": "components_shared_seos",
+  "info": {
+    "displayName": "SEO",
+    "icon": "search"
+  },
+  "options": {},
+  "attributes": {
+    "seo_title": {
+      "type": "string",
+      "maxLength": 60
+    },
+    "seo_description": {
+      "type": "text",
+      "maxLength": 160
+    },
+    "canonical_url": {
+      "type": "string"
+    },
+    "og_image": {
+      "type": "media",
+      "allowedTypes": [
+        "images"
+      ],
+      "multiple": false
+    },
+    "no_index": {
+      "type": "boolean",
+      "default": false
+    },
+    "focus_keyword": {
+      "type": "string"
+    },
+    "structured_data_type": {
+      "type": "enumeration",
+      "enum": [
+        "Organization",
+        "LocalBusiness",
+        "Service",
+        "BlogPosting",
+        "WebPage"
+      ]
+    }
+  },
+  "category": "shared"
+}
