@@ -4,6 +4,11 @@ export const EMAIL_MAX_RETRIES = 3 as const;
 export const EMAIL_RETRY_DELAY_MS = 1000 as const;
 export const EMAIL_TIMEOUT_MS = 10000 as const;
 
+// Webhook service configuration
+export const WEBHOOK_TIMEOUT_MS = 5000 as const;
+export const WEBHOOK_MAX_RETRIES = 2 as const;
+export const WEBHOOK_RETRY_DELAY_MS = 500 as const;
+
 // Rate limiting (already defined in middleware, but centralized here)
 export const RATE_LIMIT_CONTACT = 5 as const;
 export const RATE_LIMIT_INTAKE = 3 as const;

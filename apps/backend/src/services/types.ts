@@ -48,3 +48,25 @@ export interface IntakeSubmissionData {
   message?: string;
   createdAt: string;
 }
+
+/**
+ * Supported webhook event names emitted by form lifecycle hooks.
+ */
+export type WebhookEvent = 'contact_submission.created' | 'intake_submission.created';
+
+/**
+ * Standard webhook payload sent to external automation tools.
+ */
+export interface WebhookPayload {
+  event: WebhookEvent;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
+/**
+ * Parameters required to dispatch a webhook.
+ */
+export interface DispatchWebhookParams {
+  event: WebhookEvent;
+  data: Record<string, unknown>;
+}
